@@ -1,0 +1,521 @@
+/* ParaWaves — Apple-inspired Design */
+
+/* ─── Design Tokens ─── */
+
+:root {
+  --pw-radius: 12px;
+  --pw-radius-sm: 8px;
+  --pw-radius-xs: 6px;
+  --pw-accent: #007AFF;
+  --pw-accent-hover: #0066D6;
+  --pw-red: #FF3B30;
+  --pw-orange: #FF9500;
+  --pw-green: #34C759;
+  --pw-blue: #007AFF;
+  --pw-gray: #8E8E93;
+  --pw-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --pw-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --pw-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08);
+  --pw-transition: 200ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  --pw-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+}
+
+/* ─── Dashboard Container ─── */
+
+.pw-dashboard {
+  font-family: var(--pw-font);
+  padding: 16px 16px 24px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Stats Row ─── */
+
+.pw-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.pw-stat-card {
+  background: var(--background-secondary);
+  border-radius: var(--pw-radius);
+  padding: 14px 10px;
+  text-align: center;
+  box-shadow: var(--pw-shadow);
+  transition: transform var(--pw-transition), box-shadow var(--pw-transition);
+}
+
+.pw-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--pw-shadow-md);
+}
+
+.pw-stat-card .value {
+  font-size: 1.2em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.pw-stat-card .label {
+  font-size: 0.7em;
+  color: var(--pw-gray);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+/* ─── Section Header ─── */
+
+.pw-section-header {
+  font-weight: 600;
+  font-size: 0.8em;
+  color: var(--pw-gray);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  padding: 10px 0 8px;
+  user-select: none;
+  transition: color var(--pw-transition);
+}
+
+.pw-section-header:hover {
+  color: var(--text-normal);
+}
+
+/* ─── Sparks Kanban ─── */
+
+.pw-sparks-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pw-sparks-column {
+  background: var(--background-secondary);
+  border-radius: var(--pw-radius);
+  padding: 12px;
+  box-shadow: var(--pw-shadow);
+  transition: box-shadow var(--pw-transition);
+}
+
+.pw-sparks-column.drag-over {
+  box-shadow: var(--pw-shadow-lg);
+  outline: 2px dashed var(--pw-accent);
+  outline-offset: -2px;
+}
+
+.pw-sparks-column-header {
+  font-weight: 600;
+  font-size: 0.82em;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pw-sparks-column-header .count {
+  color: var(--pw-gray);
+  font-weight: 500;
+  font-size: 0.85em;
+  background: var(--background-primary);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pw-spark-card {
+  background: var(--background-primary);
+  border-radius: var(--pw-radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-size: 0.82em;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: transform var(--pw-transition), box-shadow var(--pw-transition);
+  border: 1px solid transparent;
+}
+
+.pw-spark-card:last-child {
+  margin-bottom: 0;
+}
+
+.pw-spark-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--pw-shadow-md);
+}
+
+.pw-spark-card:active {
+  transform: scale(0.98);
+}
+
+.pw-spark-card.stale-hatch {
+  border-color: var(--pw-red);
+}
+
+.pw-spark-card.stale-incubate {
+  border-color: var(--pw-orange);
+}
+
+.pw-spark-card .title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pw-spark-card .meta {
+  font-size: 0.85em;
+  color: var(--pw-gray);
+  margin-top: 3px;
+}
+
+/* ─── Waves Chat (Dashboard) ─── */
+
+.pw-chat-section {
+  margin-top: 16px;
+}
+
+.pw-chat-messages {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px 0;
+  scroll-behavior: smooth;
+  /* Subtle top fade */
+  mask-image: linear-gradient(to bottom, transparent 0%, black 4%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 4%);
+}
+
+.pw-chat-msg {
+  padding: 10px 14px;
+  border-radius: 18px;
+  margin-bottom: 6px;
+  font-size: 0.82em;
+  line-height: 1.5;
+  max-width: 88%;
+  word-break: break-word;
+  animation: pw-msg-in 250ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+@keyframes pw-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pw-chat-msg.user {
+  background: var(--pw-accent);
+  color: #fff;
+  margin-left: auto;
+  border-bottom-right-radius: var(--pw-radius-xs);
+}
+
+.pw-chat-msg.waves {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  border-bottom-left-radius: var(--pw-radius-xs);
+  box-shadow: var(--pw-shadow);
+}
+
+.pw-chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.pw-chat-input-row input {
+  flex: 1;
+  font-size: 0.85em;
+  border-radius: 20px;
+  padding: 8px 16px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  transition: border-color var(--pw-transition), box-shadow var(--pw-transition);
+}
+
+.pw-chat-input-row input:focus {
+  outline: none;
+  border-color: var(--pw-accent);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+}
+
+.pw-chat-input-row button {
+  white-space: nowrap;
+  font-size: 0.85em;
+  border-radius: 20px;
+  padding: 8px 18px;
+  background: var(--pw-accent);
+  color: #fff;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--pw-transition), transform var(--pw-transition);
+}
+
+.pw-chat-input-row button:hover {
+  background: var(--pw-accent-hover);
+}
+
+.pw-chat-input-row button:active {
+  transform: scale(0.96);
+}
+
+/* ─── Review Modal ─── */
+
+.pw-review-modal {
+  font-family: var(--pw-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+.pw-review-modal .pw-review-progress {
+  text-align: center;
+  color: var(--pw-gray);
+  font-size: 0.8em;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 16px;
+}
+
+.pw-review-modal h3 {
+  font-weight: 700;
+  font-size: 1.1em;
+  letter-spacing: -0.02em;
+}
+
+.pw-review-modal .card-front {
+  font-size: 1.05em;
+  line-height: 1.7;
+  padding: 20px 24px;
+  min-height: 160px;
+  background: var(--background-secondary);
+  border-radius: var(--pw-radius);
+  box-shadow: var(--pw-shadow);
+  white-space: pre-wrap;
+}
+
+.pw-review-modal .card-back {
+  font-size: 1.05em;
+  line-height: 1.7;
+  padding: 20px 24px;
+  background: var(--background-secondary);
+  border-radius: var(--pw-radius);
+  box-shadow: var(--pw-shadow);
+  white-space: pre-wrap;
+  border-top: none;
+  animation: pw-card-flip 300ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+@keyframes pw-card-flip {
+  from {
+    opacity: 0;
+    transform: rotateX(-8deg);
+  }
+  to {
+    opacity: 1;
+    transform: rotateX(0);
+  }
+}
+
+.pw-review-modal .rating-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.pw-review-modal .rating-btn {
+  padding: 10px 22px;
+  border-radius: 20px;
+  cursor: pointer;
+  border: none;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: #fff;
+  transition: transform var(--pw-transition), box-shadow var(--pw-transition), opacity var(--pw-transition);
+  letter-spacing: -0.01em;
+}
+
+.pw-review-modal .rating-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--pw-shadow-md);
+}
+
+.pw-review-modal .rating-btn:active {
+  transform: scale(0.95);
+}
+
+.pw-review-modal .rating-btn.again {
+  background: var(--pw-red);
+}
+
+.pw-review-modal .rating-btn.hard {
+  background: var(--pw-orange);
+}
+
+.pw-review-modal .rating-btn.good {
+  background: var(--pw-green);
+}
+
+.pw-review-modal .rating-btn.easy {
+  background: var(--pw-blue);
+}
+
+/* ─── Wiki Chat Modal ─── */
+
+.pw-wiki-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: var(--pw-font);
+}
+
+.pw-wiki-chat .messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  scroll-behavior: smooth;
+}
+
+.pw-wiki-chat .message {
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: 18px;
+  max-width: 85%;
+  font-size: 0.9em;
+  line-height: 1.5;
+  word-break: break-word;
+  animation: pw-msg-in 250ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.pw-wiki-chat .message.user {
+  background: var(--pw-accent);
+  color: #fff;
+  margin-left: auto;
+  border-bottom-right-radius: var(--pw-radius-xs);
+}
+
+.pw-wiki-chat .message.assistant {
+  background: var(--background-secondary);
+  box-shadow: var(--pw-shadow);
+  border-bottom-left-radius: var(--pw-radius-xs);
+}
+
+.pw-wiki-chat .input-row {
+  display: flex;
+  gap: 8px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.pw-wiki-chat .input-row input {
+  flex: 1;
+  border-radius: 20px;
+  padding: 10px 16px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  transition: border-color var(--pw-transition), box-shadow var(--pw-transition);
+}
+
+.pw-wiki-chat .input-row input:focus {
+  outline: none;
+  border-color: var(--pw-accent);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+}
+
+/* ─── Scrollbar ─── */
+
+.pw-chat-messages::-webkit-scrollbar,
+.pw-wiki-chat .messages::-webkit-scrollbar {
+  width: 4px;
+}
+
+.pw-chat-messages::-webkit-scrollbar-thumb,
+.pw-wiki-chat .messages::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+
+.pw-chat-messages::-webkit-scrollbar-thumb:hover,
+.pw-wiki-chat .messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* ─── Section Divider ─── */
+
+.pw-section {
+  margin-top: 12px;
+}
+
+.pw-section + .pw-section {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 4px;
+}
+
+/* ─── Custom Callouts（模板用）─── */
+
+/* 目标 — 紫色 */
+.callout[data-callout="target"] {
+  --callout-color: 175, 82, 222;
+  --callout-icon: lucide-crosshair;
+}
+
+/* 灵感 — 金色 */
+.callout[data-callout="spark"] {
+  --callout-color: 255, 179, 0;
+  --callout-icon: lucide-sparkles;
+}
+
+/* 感恩 — 红色 */
+.callout[data-callout="heart"] {
+  --callout-color: 255, 59, 48;
+  --callout-icon: lucide-heart;
+}
+
+/* 人物 — 蓝绿 */
+.callout[data-callout="person"] {
+  --callout-color: 90, 200, 250;
+  --callout-icon: lucide-user;
+}
+
+/* ─── 笔记阅读模式美化（所有 vault 笔记生效）─── */
+
+/* 信息表对齐 */
+.markdown-preview-view table {
+  border-collapse: collapse;
+  width: auto;
+  min-width: 60%;
+}
+
+.markdown-preview-view th {
+  background: var(--background-secondary);
+  font-weight: 600;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.markdown-preview-view td,
+.markdown-preview-view th {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* Callout 统一圆角和间距 */
+.callout {
+  border-radius: var(--pw-radius);
+  margin: 12px 0;
+}
+
+/* hr 分隔线美化 */
+.markdown-preview-view hr {
+  border: none;
+  height: 1px;
+  background: var(--background-modifier-border);
+  margin: 24px 0;
+}

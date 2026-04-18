@@ -1,0 +1,10 @@
+{
+  "id": "para-waves",
+  "name": "ParaWaves",
+  "version": "0.1.0",
+  "minAppVersion": "1.1.0",
+  "description": "PARA + methodology loop + LLM Wiki: Sparks kanban, spaced repetition, AI-powered knowledge base",
+  "author": "odo",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
