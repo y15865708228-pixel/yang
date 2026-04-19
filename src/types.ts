@@ -93,6 +93,7 @@ export interface WeeklyStats {
   reviewsDue: number;
   wikiPagesTotal: number;
   lintIssues: number;
+  pendingTasks: { text: string; from: string }[];
 }
 
 // ─── Settings ───

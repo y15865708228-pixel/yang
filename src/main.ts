@@ -1,4 +1,4 @@
-import { Notice, Plugin, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Plugin, WorkspaceLeaf, normalizePath, TFile, addIcon } from "obsidian";
 import { DEFAULT_SETTINGS } from "./types";
 import type { ParaWavesSettings } from "./types";
 import { ParaWavesSettingTab } from "./settings";
@@ -13,6 +13,9 @@ import { WikiChatModal } from "./wiki/wiki-chat-modal";
 import { lintWiki } from "./wiki/lint";
 import { collectWeeklyStats, generateWeeklyReport } from "./weekly/weekly-report";
 import { buildEmbeddingIndex, updateEmbeddingIndex } from "./wiki/embedding-index";
+import { formatNote, continueWriting } from "./editor/writing-assist";
+import { archiveMonthlyDaily } from "./daily/monthly-archiver";
+import { registerPWIcons } from "./utils/icons";
 
 export default class ParaWavesPlugin extends Plugin {
   settings: ParaWavesSettings = { ...DEFAULT_SETTINGS };
@@ -21,6 +24,7 @@ export default class ParaWavesPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
     this.initLLM();
+    registerPWIcons((id: string, svg: string) => addIcon(id, svg));
 
     // ─── 注册 Sparks 视图 ───
     this.registerView(SPARKS_VIEW_TYPE, (leaf: WorkspaceLeaf) => new SparksView(leaf, this.settings, this));
@@ -158,6 +162,83 @@ export default class ParaWavesPlugin extends Plugin {
         }
       },
     });
+
+    // 写作助手：整理排版
+    this.addCommand({
+      id: "format-note",
+      name: "整理笔记排版",
+      editorCallback: async (editor, view) => {
+        if (!this.llmProvider) {
+          new Notice("请先在设置中配置 LLM");
+          return;
+        }
+        if (!(view instanceof MarkdownView)) return;
+        await formatNote(this.app, editor, view, this.llmProvider);
+      },
+    });
+
+    // 写作助手：继续写
+    this.addCommand({
+      id: "continue-writing",
+      name: "继续写",
+      editorCallback: async (editor, view) => {
+        if (!this.llmProvider) {
+          new Notice("请先在设置中配置 LLM");
+          return;
+        }
+        if (!(view instanceof MarkdownView)) return;
+        await continueWriting(this.app, editor, view, this.llmProvider);
+      },
+    });
+
+    // 月度归档
+    this.addCommand({
+      id: "archive-monthly-daily",
+      name: "归档上月日记",
+      callback: async () => {
+        await archiveMonthlyDaily(this.app, this.settings);
+      },
+    });
+
+    // 右键菜单：选中文字转 Spark
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        const selected = editor.getSelection().trim();
+        if (!selected) return;
+        menu.addItem((item) => {
+          item.setTitle("🫧 转为灵感").onClick(async () => {
+            const title = selected.replace(/[/\\?%*:|"<>]/g, "-").substring(0, 50);
+            const sparkPath = normalizePath(`${this.settings.sparksPath}/${title}.md`);
+            if (this.app.vault.getAbstractFileByPath(sparkPath)) {
+              new Notice("同名灵感已存在");
+              return;
+            }
+            const source = view.file?.path ?? "";
+            const today = new Date().toISOString().slice(0, 10);
+            const content = [
+              "---",
+              "type: 灵感卡片",
+              "stage: 待孵化",
+              "spark_status: 🫧待孵化",
+              `title: "${selected.substring(0, 100)}"`,
+              `source: "[[${source}]]"`,
+              'area: ""',
+              'project: ""',
+              "tags:",
+              "  - 灵感",
+              `created: ${today}`,
+              `updated: ${today}`,
+              "---",
+              "",
+              `## ${selected.substring(0, 100)}`,
+              "",
+            ].join("\n");
+            await this.app.vault.create(sparkPath, content);
+            new Notice(`🫧 灵感已创建：${title}`);
+          });
+        });
+      })
+    );
 
     // 设置页
     this.addSettingTab(new ParaWavesSettingTab(this.app, this));

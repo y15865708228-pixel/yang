@@ -1,14 +1,16 @@
-import { ItemView, WorkspaceLeaf, Menu, Notice, TFile, normalizePath } from "obsidian";
-import type { Spark, SparkStatus, ParaWavesSettings, LLMMessage } from "../types";
+import { ItemView, WorkspaceLeaf, Menu, Notice, TFile, normalizePath, MarkdownView } from "obsidian";
+import type { Spark, SparkStatus, ParaWavesSettings } from "../types";
 import { scanSparks, isStale, updateSparkStatus } from "./spark-engine";
 import { processInbox } from "../wiki/ingest";
-import { queryWiki } from "../wiki/query";
 import { lintWiki } from "../wiki/lint";
 import { collectWeeklyStats, generateWeeklyReport } from "../weekly/weekly-report";
-import { getSRSData, buildReviewQueue, applyReview } from "../srs/review-scheduler";
+import { getSRSData, buildReviewQueue } from "../srs/review-scheduler";
 import { ReviewModal } from "../srs/review-modal";
 import type { LLMProvider } from "../llm/provider";
-import { buildEmbeddingIndex } from "../wiki/embedding-index";
+import { formatNote, continueWriting } from "../editor/writing-assist";
+import { solarToLunar } from "../utils/lunar";
+import { getDailyMotivation } from "../utils/iching";
+import { iconHTML } from "../utils/icons";
 
 export const SPARKS_VIEW_TYPE = "para-waves-sparks";
 
@@ -19,36 +21,8 @@ const STATUS_COLUMNS: { status: SparkStatus; icon: string; label: string }[] = [
   { status: "❌已放弃", icon: "❌", label: "已放弃" },
 ];
 
-// waves 意图识别 system prompt
-const INTENT_SYSTEM = `你是 waves，ParaWaves 知识管理系统的 AI 助手。用户会用自然语言跟你说话，你需要判断意图并执行。
 
-支持的意图和对应的 JSON 回复格式（不要加 markdown 代码块）：
-
-1. 处理 Inbox → {"intent":"ingest"}
-   触发词：处理inbox、整理inbox、分类、归档、清理
-
-2. 创建灵感 → {"intent":"create_spark","title":"灵感标题","description":"一句话描述","area":"领域","source":"来源"}
-   触发词：我有个灵感、新想法、记录一个灵感
-
-3. 查询知识库 → {"intent":"query","question":"用户的问题"}
-   触发词：帮我查、wiki、知识库里有没有、关于XX的笔记
-
-4. 复习卡片 → {"intent":"review"}
-   触发词：复习、复习卡片、有什么要复习的
-
-5. 健康检查 → {"intent":"lint"}
-   触发词：检查、体检、健康检查、有没有问题
-
-6. 生成周报 → {"intent":"weekly"}
-   触发词：周报、本周回顾、生成周报
-
-7. 重建索引 → {"intent":"rebuild_index"}
-   触发词：重建索引、更新索引、构建索引、索引
-
-8. 普通聊天/回答问题 → {"intent":"chat","reply":"你的回答"}
-   其他所有情况：闲聊、问问题、求助等
-
-只返回 JSON，不要其他内容。`;
+type StatusType = "running" | "done" | "error";
 
 export class SparksView extends ItemView {
   private settings: ParaWavesSettings;
@@ -58,8 +32,10 @@ export class SparksView extends ItemView {
   private dueReviews = 0;
   private wikiTotal = 0;
   private dragSrcPath: string | null = null;
-  private chatMessages: { role: string; content: string }[] = [];
-  private chatContainer: HTMLElement | null = null;
+  private statusEl: HTMLElement | null = null;
+  private statusText = "";
+  private statusType: StatusType = "running";
+  private busy = false;
 
   constructor(leaf: WorkspaceLeaf, settings: ParaWavesSettings, plugin: any) {
     super(leaf);
@@ -81,13 +57,13 @@ export class SparksView extends ItemView {
 
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private debouncedRefresh() {
+    if (this.busy) return;
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshTimer = setTimeout(() => this.refresh(), 500);
   }
 
   async refresh() {
     this.sparks = await scanSparks(this.app, this.settings);
-    // 统计
     const inboxFolder = this.app.vault.getAbstractFileByPath(this.settings.inboxPath);
     this.inboxCount = 0;
     if (inboxFolder && (inboxFolder as any).children) {
@@ -106,70 +82,312 @@ export class SparksView extends ItemView {
     this.render();
   }
 
+  private get provider(): LLMProvider | null {
+    return this.plugin.llmProvider;
+  }
+
+  // ─── 状态栏 ───
+
+  private setStatus(text: string, type: StatusType = "running") {
+    this.statusText = text;
+    this.statusType = type;
+    this.applyStatus();
+  }
+
+  private clearStatus() {
+    this.statusText = "";
+    if (this.statusEl) this.statusEl.style.display = "none";
+  }
+
+  private applyStatus() {
+    if (!this.statusEl) return;
+    if (!this.statusText) { this.statusEl.style.display = "none"; return; }
+    this.statusEl.textContent = this.statusText;
+    this.statusEl.className = "pw-status-bar";
+    if (this.statusType === "done") this.statusEl.addClass("pw-status-done");
+    if (this.statusType === "error") this.statusEl.addClass("pw-status-error");
+    this.statusEl.style.display = "block";
+  }
+
+  // ─── 渲染 ───
+
   private render() {
     const el = this.contentEl;
     el.empty();
     el.addClass("pw-dashboard");
 
-    // ─── 统计 ───
+    // 状态栏
+    this.statusEl = el.createDiv({ cls: "pw-status-bar" });
+    this.applyStatus();
+
+    // 统计卡片
     const stats = el.createDiv({ cls: "pw-stats-row" });
-    this.stat(stats, "📥", this.inboxCount, "Inbox");
-    this.stat(stats, "🫧", this.sparks.length, "Sparks");
-    this.stat(stats, "📚", this.dueReviews, "待复习");
-    this.stat(stats, "📝", this.wikiTotal, "Wiki");
+    this.stat(stats, "pw-inbox", this.inboxCount, "Inbox");
+    this.stat(stats, "pw-spark", this.sparks.length, "Sparks");
+    this.stat(stats, "pw-review", this.dueReviews, "待复习");
+    this.stat(stats, "pw-wiki", this.wikiTotal, "Wiki");
 
-    // ─── Sparks 看板（可折叠）───
-    const sparkSection = el.createDiv({ cls: "pw-section" });
-    const sparkHeader = sparkSection.createDiv({ cls: "pw-section-header" });
-    sparkHeader.textContent = "🫧 Sparks 灵感池";
-    let sparkVisible = true;
-    sparkHeader.addEventListener("click", () => {
-      sparkVisible = !sparkVisible;
-      board.style.display = sparkVisible ? "" : "none";
-      sparkHeader.textContent = sparkVisible ? "🫧 Sparks 灵感池" : "🫧 Sparks ▸";
-    });
+    // 快捷操作
+    const actions = el.createDiv({ cls: "pw-quick-actions" });
+    this.actionBtn(actions, "pw-ingest", "处理 Inbox", () => this.doIngest());
+    this.actionBtn(actions, "pw-cards", "复习卡片", () => this.doReview());
+    this.actionBtn(actions, "pw-health", "健康检查", () => this.doLint());
+    this.actionBtn(actions, "pw-chart", "周报", () => this.doWeekly());
+    this.actionBtn(actions, "pw-format", "整理排版", () => this.doFormat());
+    this.actionBtn(actions, "pw-pen", "继续写", () => this.doContinue());
 
-    const board = sparkSection.createDiv({ cls: "pw-sparks-board" });
-    for (const col of STATUS_COLUMNS) {
-      const colSparks = this.sparks.filter((s) => s.status === col.status);
-      const colEl = board.createDiv({ cls: "pw-sparks-column" });
-      const hdr = colEl.createDiv({ cls: "pw-sparks-column-header" });
-      hdr.textContent = `${col.icon} ${col.label}`;
-      hdr.createSpan({ cls: "count", text: `(${colSparks.length})` });
+    // 过期提醒
+    const staleSparks = this.sparks.filter((s) => isStale(s, this.settings) !== "none");
+    if (staleSparks.length > 0) {
+      const alertSection = el.createDiv({ cls: "pw-stale-alert" });
+      const alertHeader = alertSection.createDiv({ cls: "pw-stale-alert-header" });
+      alertHeader.innerHTML = `${iconHTML("pw-health", 14)} ${staleSparks.length} 个灵感需要处理`;
+      for (const spark of staleSparks) {
+        const row = alertSection.createDiv({ cls: "pw-stale-item" });
+        const stale = isStale(spark, this.settings);
+        const dot = `<span class="pw-stale-dot ${stale === "hatch" ? "pw-stale-red" : "pw-stale-orange"}"></span>`;
+        row.innerHTML = `${dot} ${spark.title || spark.filePath.split("/").pop()} · ${spark.staleDays}天`;
+        row.addEventListener("click", () =>
+          this.app.workspace.openLinkText(spark.filePath, "", false)
+        );
+      }
+    }
 
-      colEl.addEventListener("dragover", (e) => { e.preventDefault(); colEl.addClass("drag-over"); });
-      colEl.addEventListener("dragleave", () => colEl.removeClass("drag-over"));
-      colEl.addEventListener("drop", async (e) => {
-        e.preventDefault(); colEl.removeClass("drag-over");
-        if (this.dragSrcPath) {
-          await updateSparkStatus(this.app, this.dragSrcPath, col.status);
-          this.dragSrcPath = null;
-          await this.refresh();
+    // ─── Sparks 看板 ───
+    this.renderSparksBoard(el);
+
+    // ─── 今日概览（固定底部）───
+    this.renderDailyOverview(el);
+
+    // ─── 每日宣言 ───
+    this.renderMotivation(el);
+  }
+
+  // ─── 今日概览（月历卡片）───
+
+  private async renderDailyOverview(parent: HTMLElement) {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth(); // 0-indexed
+    const dateStr = today.toISOString().slice(0, 10);
+    const lunar = solarToLunar(year, month + 1, today.getDate());
+
+    const section = parent.createDiv({ cls: "pw-daily-section" });
+
+    // 月份标题 + 农历年
+    const dateRow = section.createDiv({ cls: "pw-daily-date-row" });
+    dateRow.createSpan({ cls: "pw-daily-date" }).innerHTML = `${iconHTML("pw-calendar", 14)} ${month + 1}月`;
+    dateRow.createSpan({ cls: "pw-daily-lunar", text: `${lunar.ganZhi} ${lunar.shengXiao}` });
+
+    // 星期头
+    const headerRow = section.createDiv({ cls: "pw-cal-header" });
+    for (const w of ["日", "一", "二", "三", "四", "五", "六"]) {
+      headerRow.createDiv({ cls: "pw-cal-weekday", text: w });
+    }
+
+    // 计算月历网格
+    const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // 扫描已有日记
+    const dailyFiles = new Set<string>();
+    const folder = this.app.vault.getAbstractFileByPath(this.settings.dailyPath);
+    if (folder && (folder as any).children) {
+      for (const c of (folder as any).children) {
+        if (c.extension === "md" && c.name.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`)) {
+          dailyFiles.add(c.name.replace(".md", ""));
+        }
+      }
+    }
+
+    const grid = section.createDiv({ cls: "pw-cal-grid" });
+
+    // 前置空格
+    for (let i = 0; i < firstDay; i++) {
+      grid.createDiv({ cls: "pw-cal-cell pw-cal-empty" });
+    }
+
+    // 日期格子
+    for (let d = 1; d <= daysInMonth; d++) {
+      const cell = grid.createDiv({ cls: "pw-cal-cell" });
+      const ds = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const isToday = d === today.getDate();
+
+      if (isToday) cell.addClass("pw-cal-today");
+      if (dailyFiles.has(ds)) cell.addClass("pw-cal-has-note");
+
+      cell.createDiv({ cls: "pw-cal-num", text: String(d) });
+      if (dailyFiles.has(ds)) cell.createDiv({ cls: "pw-cal-dot" });
+
+      const dailyPath = normalizePath(`${this.settings.dailyPath}/${ds}.md`);
+      cell.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(dailyPath);
+        if (file) {
+          this.app.workspace.openLinkText(dailyPath, "", false);
+        } else if (confirm(`创建 ${ds} 的日记？`)) {
+          this.createDailyNote(dailyPath, ds);
         }
       });
+    }
+
+    // 今日任务区
+    const dailyPath = normalizePath(`${this.settings.dailyPath}/${dateStr}.md`);
+    const dailyFile = this.app.vault.getAbstractFileByPath(dailyPath);
+
+    if (dailyFile && dailyFile instanceof TFile) {
+      const content = await this.app.vault.cachedRead(dailyFile);
+      const tasks = this.extractTasks(content);
+      if (tasks.length > 0) {
+        const done = tasks.filter((t) => t.done).length;
+        const progressWrap = section.createDiv({ cls: "pw-daily-progress-wrap" });
+        const pct = Math.round((done / tasks.length) * 100);
+        progressWrap.createDiv({ cls: "pw-daily-progress-label", text: `${done}/${tasks.length}` });
+        const bar = progressWrap.createDiv({ cls: "pw-daily-progress-bar" });
+        bar.createDiv({ cls: "pw-daily-progress-fill" }).style.width = `${pct}%`;
+
+        const taskList = section.createDiv({ cls: "pw-daily-tasks" });
+        const pending = tasks.filter((t) => !t.done).slice(0, 5);
+        for (const task of pending) {
+          const row = taskList.createDiv({ cls: "pw-daily-task" });
+          row.textContent = `☐ ${task.text}`;
+          row.addEventListener("click", () =>
+            this.app.workspace.openLinkText(dailyPath, "", false)
+          );
+        }
+        const extra = tasks.length - done - pending.length;
+        if (extra > 0) {
+          taskList.createDiv({ cls: "pw-daily-task done", text: `... 还有 ${extra} 项已完成` });
+        }
+        if (pending.length === 0 && done > 0) {
+          taskList.createDiv({ cls: "pw-daily-task", text: "🎉 今日任务已全部完成" });
+        }
+      }
+    }
+  }
+
+  private async createDailyNote(path: string, ds: string) {
+    const template = this.getDailyTemplate();
+    await this.app.vault.create(path, template);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file) await this.app.workspace.getLeaf(false).openFile(file as any);
+  }
+
+  // ─── Sparks 看板（紧凑列表）───
+
+  private renderSparksBoard(parent: HTMLElement) {
+    const section = parent.createDiv({ cls: "pw-section" });
+    const header = section.createDiv({ cls: "pw-section-header" });
+    header.innerHTML = `${iconHTML("pw-spark", 14)} Sparks`;
+
+    // 快速输入
+    const inputRow = section.createDiv({ cls: "pw-sparks-input" });
+    const input = inputRow.createEl("input", {
+      type: "text",
+      placeholder: "记一个灵感...",
+      cls: "pw-sparks-input-field",
+    });
+    input.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") {
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = "";
+        await this.createSpark(text);
+      }
+    });
+
+    const hint = section.createDiv({ cls: "pw-sparks-hint" });
+    hint.textContent = "回车创建 · 点击名称打开 · 点 → 流转 · 右键全部选项";
+
+    const list = section.createDiv({ cls: "pw-sparks-list" });
+
+    for (const col of STATUS_COLUMNS) {
+      const colSparks = this.sparks.filter((s) => s.status === col.status);
+      if (colSparks.length === 0) continue;
+
+      // 分组标签
+      const statusGroupCls: Record<string, string> = {
+        "🫧待孵化": "pw-group-hatch",
+        "🔥孵化中": "pw-group-incubate",
+        "✅准备好": "pw-group-ready",
+        "❌已放弃": "pw-group-abandon",
+      };
+      const statusIcons: Record<string, string> = {
+        "🫧待孵化": "pw-hatch",
+        "🔥孵化中": "pw-fire",
+        "✅准备好": "pw-check",
+        "❌已放弃": "pw-x",
+      };
+      const statusRowCls: Record<string, string> = {
+        "🫧待孵化": "pw-row-hatch",
+        "🔥孵化中": "pw-row-incubate",
+        "✅准备好": "pw-row-ready",
+        "❌已放弃": "pw-row-abandon",
+      };
+
+      const groupLabel = list.createDiv({ cls: `pw-sparks-group ${statusGroupCls[col.status] || ""}` });
+      groupLabel.innerHTML = `${iconHTML(statusIcons[col.status] || "pw-spark", 12)} ${col.label} ${colSparks.length}`;
 
       for (const spark of colSparks) {
-        const card = colEl.createDiv({ cls: "pw-spark-card" });
+        const row = list.createDiv({ cls: `pw-sparks-row ${statusRowCls[spark.status] || ""}` });
         const stale = isStale(spark, this.settings);
-        if (stale === "hatch") card.addClass("stale-hatch");
-        if (stale === "incubate") card.addClass("stale-incubate");
-        card.createDiv({ cls: "title", text: spark.title || spark.filePath.split("/").pop() });
-        const meta = card.createDiv({ cls: "meta" });
-        const p: string[] = [];
-        if (spark.area) p.push(spark.area);
-        if (spark.staleDays > 0) p.push(`${spark.staleDays}天`);
-        meta.textContent = p.join(" · ");
+        if (stale === "hatch") row.addClass("stale-hatch");
+        if (stale === "incubate") row.addClass("stale-incubate");
 
-        card.setAttr("draggable", "true");
-        card.addEventListener("dragstart", () => { this.dragSrcPath = spark.filePath; });
-        card.addEventListener("click", () => this.app.workspace.openLinkText(spark.filePath, "", false));
-        card.addEventListener("contextmenu", (e) => {
+        const name = spark.title || spark.filePath.split("/").pop() || "";
+        const meta: string[] = [];
+        if (spark.area) meta.push(spark.area);
+        if (spark.staleDays > 0) meta.push(`${spark.staleDays}天`);
+        const metaStr = meta.length > 0 ? ` · ${meta.join(" ")}` : "";
+
+        const textEl = row.createSpan({ text: `${name}${metaStr}` });
+        textEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.app.workspace.openLinkText(spark.filePath, "", false);
+        });
+
+        // 流转按钮
+        const statusIdx = STATUS_COLUMNS.findIndex((c) => c.status === spark.status);
+
+        if (statusIdx === 0) {
+          // 🫧 → 🔥
+          const btn = row.createSpan({ cls: "pw-sparks-next" });
+          btn.innerHTML = `${iconHTML("pw-fire", 12)} ${iconHTML("pw-arrow-right", 10)}`;
+          btn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            await updateSparkStatus(this.app, spark.filePath, "🔥孵化中");
+            await this.refresh();
+          });
+        } else if (statusIdx === 1) {
+          // 🔥 → ✅
+          const btn = row.createSpan({ cls: "pw-sparks-next" });
+          btn.innerHTML = `${iconHTML("pw-check", 12)} ${iconHTML("pw-arrow-right", 10)}`;
+          btn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            await updateSparkStatus(this.app, spark.filePath, "✅准备好");
+            await this.refresh();
+          });
+        } else if (statusIdx === 2) {
+          // ✅ → 创建项目
+          const btn = row.createSpan({ cls: "pw-sparks-next" });
+          btn.innerHTML = `${iconHTML("pw-project", 12)} 立项`;
+          btn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            await this.promoteSparkToProject(spark);
+            await this.refresh();
+          });
+        }
+        // ❌已放弃 不显示流转按钮
+
+        row.addEventListener("contextmenu", (e) => {
           const menu = new Menu();
           for (const t of STATUS_COLUMNS) {
             if (t.status !== spark.status) {
               menu.addItem((item) => {
                 item.setTitle(`${t.icon} → ${t.label}`);
-                item.onClick(async () => { await updateSparkStatus(this.app, spark.filePath, t.status); await this.refresh(); });
+                item.onClick(async () => {
+                  await updateSparkStatus(this.app, spark.filePath, t.status);
+                  await this.refresh();
+                });
               });
             }
           }
@@ -177,189 +395,303 @@ export class SparksView extends ItemView {
         });
       }
     }
-
-    // ─── waves 聊天区 ───
-    const chatSection = el.createDiv({ cls: "pw-chat-section" });
-    const chatHeader = chatSection.createDiv({ cls: "pw-section-header" });
-    chatHeader.textContent = "🌊 waves 助手";
-
-    this.chatContainer = chatSection.createDiv({ cls: "pw-chat-messages" });
-
-    // 恢复历史消息
-    for (const msg of this.chatMessages) {
-      this.renderChatMsg(msg.role, msg.content);
-    }
-
-    const inputRow = chatSection.createDiv({ cls: "pw-chat-input-row" });
-    const input = inputRow.createEl("input", { type: "text", placeholder: "跟 waves 说点什么..." });
-    const sendBtn = inputRow.createEl("button", { text: "发送", cls: "mod-cta" });
-
-    const send = async () => {
-      const text = input.value.trim();
-      if (!text) return;
-      input.value = "";
-      this.addChatMsg("user", text);
-      await this.handleWavesMessage(text);
-      input.focus();
-    };
-
-    sendBtn.addEventListener("click", send);
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
   }
 
-  // ─── waves 核心：意图识别 + 执行 ───
+  private extractTasks(content: string): { text: string; done: boolean }[] {
+    const tasks: { text: string; done: boolean }[] = [];
+    for (const line of content.split("\n")) {
+      const match = line.match(/^- \[([ xX])\]\s*(.+)/);
+      if (match) {
+        tasks.push({ done: match[1] !== " ", text: match[2].trim() });
+      }
+    }
+    return tasks;
+  }
 
-  private async handleWavesMessage(text: string) {
-    const provider: LLMProvider | null = this.plugin.llmProvider;
-    if (!provider) {
-      this.addChatMsg("waves", "⚠️ 还没配置 LLM，请先到设置里填上 API Key");
+  private getDailyTemplate(): string {
+    const today = new Date().toISOString().slice(0, 10);
+    return `---
+type: 日记
+date: ${today}
+weather: ""
+mood: ""
+tags:
+  - 日记
+created: ${today}
+---
+
+**今日三件事**
+- [ ]
+- [ ]
+- [ ]
+
+***
+
+## 记录
+
+***
+
+> [!quote] 感恩
+>
+
+**明日**
+-
+`;
+  }
+
+  // ─── 每日宣言 ───
+
+  private renderMotivation(parent: HTMLElement) {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), 0, 0);
+    const dayOfYear = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    const { hexagram, quote } = getDailyMotivation(dayOfYear);
+    const el = parent.createDiv({ cls: "pw-motivation" });
+    el.textContent = `〖${hexagram}卦〗${quote}`;
+  }
+
+  // ─── 快捷操作执行 ───
+
+  private async doIngest() {
+    if (!this.provider) { new Notice("请先在设置中配置 LLM"); return; }
+    this.busy = true;
+    try {
+      this.setStatus("📥 正在扫描 Inbox...");
+      await processInbox(this.app, this.settings, this.provider);
+      await this.refresh();
+      this.setStatus(`✅ Inbox 处理完成，剩余 ${this.inboxCount} 个文件`, "done");
+      setTimeout(() => this.clearStatus(), 3000);
+    } catch (e: unknown) {
+      this.setStatus(`❌ ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`, "error");
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async doReview() {
+    this.busy = true;
+    try {
+      this.setStatus("📚 正在加载复习队列...");
+      const srsData = await getSRSData(this.plugin);
+      const queue = await buildReviewQueue(this.app, this.settings, srsData);
+      if (queue.length === 0) {
+        this.setStatus("📚 没有需要复习的卡片", "done");
+        setTimeout(() => this.clearStatus(), 2000);
+        return;
+      }
+      this.setStatus(`📚 找到 ${queue.length} 张卡片，已打开复习面板`, "done");
+      new ReviewModal(this.app, this.plugin, queue, () => this.refresh()).open();
+      setTimeout(() => this.clearStatus(), 3000);
+    } catch (e: unknown) {
+      this.setStatus(`❌ ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`, "error");
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async doLint() {
+    if (!this.provider) { new Notice("请先在设置中配置 LLM"); return; }
+    this.busy = true;
+    try {
+      this.setStatus("🔍 正在扫描 Wiki 页面...");
+      await lintWiki(this.app, this.settings, this.provider);
+      this.setStatus("✅ 健康检查完成，详见 lint-report.md", "done");
+      setTimeout(() => this.clearStatus(), 3000);
+    } catch (e: unknown) {
+      this.setStatus(`❌ ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`, "error");
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async doWeekly() {
+    this.busy = true;
+    try {
+      this.setStatus("📊 正在收集本周数据...");
+      const stats = await collectWeeklyStats(this.app, this.settings, this.plugin);
+      this.setStatus("📊 正在生成周报...");
+      const path = await generateWeeklyReport(this.app, this.settings, stats);
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file) await this.app.workspace.getLeaf(false).openFile(file as any);
+      this.setStatus("✅ 周报已生成并打开", "done");
+      setTimeout(() => this.clearStatus(), 3000);
+    } catch (e: unknown) {
+      this.setStatus(`❌ ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`, "error");
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async doFormat() {
+    if (!this.provider) { new Notice("请先在设置中配置 LLM"); return; }
+    const { editor, view } = this.getActiveEditor() ?? {};
+    if (!editor || !view) { this.setStatus("❌ 请先打开一个笔记", "error"); return; }
+    this.busy = true;
+    try {
+      this.setStatus("✨ 正在读取笔记内容...");
+      await formatNote(this.app, editor, view, this.provider);
+      this.setStatus("✅ 排版整理完成", "done");
+      setTimeout(() => this.clearStatus(), 3000);
+    } catch (e: unknown) {
+      this.setStatus(`❌ ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`, "error");
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async doContinue() {
+    if (!this.provider) { new Notice("请先在设置中配置 LLM"); return; }
+    const { editor, view } = this.getActiveEditor() ?? {};
+    if (!editor || !view) { this.setStatus("❌ 请先打开一个笔记", "error"); return; }
+    this.busy = true;
+    try {
+      this.setStatus("✍️ 正在分析笔记...");
+      await continueWriting(this.app, editor, view, this.provider);
+      this.setStatus("✅ 写作建议已插入", "done");
+      setTimeout(() => this.clearStatus(), 3000);
+    } catch (e: unknown) {
+      this.setStatus(`❌ ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`, "error");
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  // ─── 灵感升级为项目 ───
+
+  private async promoteSparkToProject(spark: Spark) {
+    const title = (spark.title || spark.filePath.split("/").pop() || "新项目").replace(/[/\\?%*:|"<>]/g, "-");
+    const projectPath = normalizePath(`${this.settings.projectsPath}/${title}.md`);
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (this.app.vault.getAbstractFileByPath(projectPath)) {
+      new Notice("同名项目已存在");
       return;
     }
 
-    // 意图识别
-    try {
-      const reply = await provider.chat(
-        [{ role: "user", content: text }],
-        INTENT_SYSTEM
-      );
-      const intent = this.parseIntent(reply);
+    // 创建项目文件
+    const content = [
+      "---",
+      "type: 项目计划",
+      "stage: 规划",
+      `area: "${spark.area}"`,
+      "status: 进行中",
+      `date_start: ${today}`,
+      "date_end:",
+      "tags:",
+      "  - 项目",
+      `created: ${today}`,
+      "---",
+      "",
+      `> [!target] 目标`,
+      `> 由灵感「${spark.title}」孵化而来`,
+      "",
+      "***",
+      "",
+      "**成功标准**",
+      "- [ ] ",
+      "",
+      "***",
+      "",
+      "**关键节点**",
+      "- [ ] ",
+      "",
+      "***",
+      "",
+      "**下一步**",
+      "- [ ] ",
+      "",
+    ].join("\n");
 
-      switch (intent.intent) {
-        case "ingest":
-          this.addChatMsg("waves", "📥 正在处理 Inbox...");
-          await processInbox(this.app, this.settings, provider);
-          await this.refresh();
-          this.addChatMsg("waves", `✅ Inbox 处理完成！当前 Inbox 剩余 ${this.inboxCount} 个文件`);
-          break;
+    await this.app.vault.create(projectPath, content);
 
-        case "create_spark": {
-          const title = intent.title || text.substring(0, 30);
-          const desc = intent.description || "";
-          const area = intent.area || "";
-          const source = intent.source || "对话";
-          const safeName = title.replace(/[/\\?%*:|"<>]/g, "-");
-          const path = normalizePath(`${this.settings.sparksPath}/${safeName}.md`);
-          const today = new Date().toISOString().slice(0, 10);
-          const content = [
-            "---",
-            "type: 灵感卡片",
-            "stage: 待孵化",
-            `spark_status: 🫧待孵化`,
-            `title: "${title}"`,
-            `source: "${source}"`,
-            `area: "${area}"`,
-            'project: ""',
-            "related: []",
-            "tags:",
-            "  - 灵感",
-            `created: ${today}`,
-            `updated: ${today}`,
-            "---",
-            "",
-            `## 一句话描述`,
-            "",
-            desc,
-            "",
-          ].join("\n");
-          if (!this.app.vault.getAbstractFileByPath(path)) {
-            await this.app.vault.create(path, content);
-            await this.refresh();
-            this.addChatMsg("waves", `🫧 灵感已创建：[[${safeName}]]`);
-          } else {
-            this.addChatMsg("waves", "⚠️ 同名灵感已存在");
-          }
-          break;
-        }
+    // 把灵感状态改为已放弃（已转化为项目）
+    await updateSparkStatus(this.app, spark.filePath, "❌已放弃");
 
-        case "query": {
-          this.addChatMsg("waves", "🔍 正在查询知识库...");
-          const answer = await queryWiki(this.app, this.settings, provider, intent.question || text, this.plugin);
-          // 截取前 300 字显示在聊天中
-          const preview = answer.length > 300 ? answer.substring(0, 300) + "..." : answer;
-          this.addChatMsg("waves", preview);
-          break;
-        }
-
-        case "review": {
-          const srsData = await getSRSData(this.plugin);
-          const queue = await buildReviewQueue(this.app, this.settings, srsData);
-          if (queue.length === 0) {
-            this.addChatMsg("waves", "📚 目前没有需要复习的卡片，做得好！");
-          } else {
-            this.addChatMsg("waves", `📚 有 ${queue.length} 张卡片需要复习，正在打开复习面板...`);
-            new ReviewModal(this.app, this.plugin, queue, () => this.refresh()).open();
-          }
-          break;
-        }
-
-        case "lint":
-          this.addChatMsg("waves", "🔍 正在检查 Wiki 健康...");
-          await lintWiki(this.app, this.settings, provider);
-          this.addChatMsg("waves", "✅ 健康检查完成，详见 lint-report.md");
-          break;
-
-        case "weekly": {
-          const stats = await collectWeeklyStats(this.app, this.settings, this.plugin);
-          const path = await generateWeeklyReport(this.app, this.settings, stats);
-          const file = this.app.vault.getAbstractFileByPath(path);
-          if (file) await this.app.workspace.getLeaf(false).openFile(file as any);
-          this.addChatMsg("waves", `📊 周报已生成并打开！本周新建 ${stats.newNotes} 篇笔记，${stats.reviewsCompleted} 次复习`);
-          break;
-        }
-
-        case "rebuild_index": {
-          this.addChatMsg("waves", "🔍 正在重建 Wiki Embedding 索引...");
-          const count = await buildEmbeddingIndex(this.app, this.settings, provider, this.plugin);
-          this.addChatMsg("waves", `✅ 索引构建完成！共索引 ${count} 个 Wiki 页面`);
-          break;
-        }
-
-        case "chat":
-        default:
-          this.addChatMsg("waves", intent.reply || "你好！我是 waves，你可以让我处理 Inbox、创建灵感、查询知识库、复习卡片、健康检查、生成周报、重建索引，或者随便聊聊");
-          break;
-      }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.addChatMsg("waves", `❌ 出错了：${msg.substring(0, 100)}`);
+    // 更新灵感的 frontmatter，记录去向
+    const sparkFile = this.app.vault.getAbstractFileByPath(spark.filePath);
+    if (sparkFile && sparkFile instanceof TFile) {
+      await this.app.fileManager.processFrontMatter(sparkFile, (fm) => {
+        fm.promoted_to = `1-Projects/${title}`;
+        fm.spark_status = "❌已放弃";
+      });
     }
+
+    // 打开项目文件
+    const file = this.app.vault.getAbstractFileByPath(projectPath);
+    if (file) await this.app.workspace.getLeaf(false).openFile(file as any);
+
+    new Notice(`📋 项目已创建：${title}`);
   }
 
-  private parseIntent(reply: string): Record<string, any> {
-    // 提取 JSON
-    const braceStart = reply.indexOf("{");
-    const braceEnd = reply.lastIndexOf("}");
-    if (braceStart >= 0 && braceEnd > braceStart) {
-      try {
-        return JSON.parse(reply.substring(braceStart, braceEnd + 1));
-      } catch { /* fall */ }
+  // ─── 快速创建灵感 ───
+
+  private async createSpark(text: string) {
+    const title = text.replace(/[/\\?%*:|"<>]/g, "-").substring(0, 50);
+    const path = normalizePath(`${this.settings.sparksPath}/${title}.md`);
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (this.app.vault.getAbstractFileByPath(path)) {
+      new Notice("同名灵感已存在");
+      return;
     }
-    return { intent: "chat", reply: reply };
+
+    const content = [
+      "---",
+      "type: 灵感卡片",
+      "stage: 待孵化",
+      "spark_status: 🫧待孵化",
+      `title: "${text}"`,
+      'source: "看板快记"',
+      'area: ""',
+      'project: ""',
+      "tags:",
+      "  - 灵感",
+      `created: ${today}`,
+      `updated: ${today}`,
+      "---",
+      "",
+      `## ${text}`,
+      "",
+    ].join("\n");
+
+    await this.app.vault.create(path, content);
+    await this.refresh();
+    new Notice(`🫧 灵感已创建：${title}`);
   }
 
-  // ─── 聊天 UI ───
+  // ─── UI 辅助 ───
 
-  private addChatMsg(role: string, content: string) {
-    this.chatMessages.push({ role, content });
-    // 只保留最近 50 条
-    if (this.chatMessages.length > 50) this.chatMessages = this.chatMessages.slice(-30);
-    this.renderChatMsg(role, content);
-    if (this.chatContainer) {
-      this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
-    }
+  private getActiveEditor(): { editor: any; view: MarkdownView } | null {
+    const leaves = this.app.workspace.getLeavesOfType("markdown");
+    if (leaves.length === 0) return null;
+    const mainLeaf = leaves.find((l) => !(l as any).isFloating) || leaves[0];
+    const view = mainLeaf.view as MarkdownView;
+    const editor = view?.editor;
+    if (!editor || !view?.file) return null;
+    return { editor, view };
   }
-
-  private renderChatMsg(role: string, content: string) {
-    if (!this.chatContainer) return;
-    const msg = this.chatContainer.createDiv({ cls: `pw-chat-msg ${role}` });
-    msg.textContent = content;
-  }
-
-  // ─── 辅助 ───
 
   private stat(parent: HTMLElement, icon: string, value: number, label: string) {
     const card = parent.createDiv({ cls: "pw-stat-card" });
-    card.createDiv({ cls: "value", text: `${icon} ${value}` });
+    card.createDiv({ cls: "value" }).innerHTML = `${iconHTML(icon, 18)} ${value}`;
     card.createDiv({ cls: "label", text: label });
+  }
+
+  private actionBtn(parent: HTMLElement, icon: string, text: string, onClick: () => Promise<void>) {
+    const btn = parent.createEl("button", { cls: "pw-action-btn" });
+    btn.innerHTML = `${iconHTML(icon, 13)} ${text}`;
+    const original = btn.innerHTML;
+    btn.addEventListener("click", async () => {
+      if (this.busy) return;
+      btn.disabled = true;
+      btn.addClass("pw-action-loading");
+      try {
+        await onClick();
+      } finally {
+        btn.textContent = original;
+        btn.disabled = false;
+        btn.removeClass("pw-action-loading");
+      }
+    });
   }
 }

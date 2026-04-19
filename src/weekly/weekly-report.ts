@@ -1,4 +1,4 @@
-import { App, Notice, normalizePath, TFile } from "obsidian";
+import { App, Notice, normalizePath, TFile, TFolder } from "obsidian";
 import type { ParaWavesSettings, WeeklyStats, SparkStatus } from "../types";
 import { scanSparks } from "../sparks/spark-engine";
 import { getSRSData } from "../srs/review-scheduler";
@@ -64,6 +64,9 @@ export async function collectWeeklyStats(
     lintIssues = Number(cache?.frontmatter?.issues_count ?? 0);
   }
 
+  // 7. 本周未完成任务
+  const pendingTasks = await collectPendingTasks(app, settings, weekAgo, now);
+
   return {
     weekLabel: `${now.getFullYear()}-${weekLabel}`,
     newNotes,
@@ -73,6 +76,7 @@ export async function collectWeeklyStats(
     reviewsDue,
     wikiPagesTotal,
     lintIssues,
+    pendingTasks,
   };
 }
 
@@ -86,7 +90,7 @@ export async function generateWeeklyReport(
   const fileName = `每周回顾 ${stats.weekLabel}`;
   const filePath = normalizePath(`Daily/${fileName}.md`);
 
-  const content = [
+  const lines: string[] = [
     "---",
     `type: 每周回顾`,
     `week: "${stats.weekLabel}"`,
@@ -117,6 +121,19 @@ export async function generateWeeklyReport(
       ([status, count]) => `| ${status} | ${count} |`
     ),
     "",
+  ];
+
+  // 未完成任务
+  if (stats.pendingTasks.length > 0) {
+    lines.push("## 未完成任务");
+    lines.push("");
+    for (const t of stats.pendingTasks) {
+      lines.push(`- [ ] ${t.text}（[[${t.from}]]）`);
+    }
+    lines.push("");
+  }
+
+  lines.push(
     "## 本周完成",
     "",
     "> 手动补充",
@@ -127,18 +144,48 @@ export async function generateWeeklyReport(
     "2. ",
     "3. ",
     "",
-  ].join("\n");
+  );
 
   // 检查文件是否已存在
   const existing = app.vault.getAbstractFileByPath(filePath);
   if (existing && existing instanceof TFile) {
-    await app.vault.modify(existing, content);
+    await app.vault.modify(existing, lines.join("\n"));
   } else {
-    await app.vault.create(filePath, content);
+    await app.vault.create(filePath, lines.join("\n"));
   }
 
   new Notice(`周报已生成: ${fileName}`);
   return filePath;
+}
+
+// 扫描本周日记中未完成的任务
+async function collectPendingTasks(
+  app: App,
+  settings: ParaWavesSettings,
+  weekAgo: Date,
+  now: Date
+): Promise<{ text: string; from: string }[]> {
+  const folder = app.vault.getAbstractFileByPath(settings.dailyPath);
+  if (!folder || !(folder instanceof TFolder)) return [];
+
+  const weekAgoStr = weekAgo.toISOString().slice(0, 10);
+  const nowStr = now.toISOString().slice(0, 10);
+  const pending: { text: string; from: string }[] = [];
+
+  for (const child of folder.children) {
+    if (!(child instanceof TFile) || child.extension !== "md") continue;
+    const dateName = child.name.replace(".md", "");
+    if (dateName < weekAgoStr || dateName > nowStr) continue;
+
+    const content = await app.vault.cachedRead(child);
+    for (const line of content.split("\n")) {
+      const match = line.match(/^- \[ \]\s*(.+)/);
+      if (match) {
+        pending.push({ text: match[1].trim(), from: dateName });
+      }
+    }
+  }
+  return pending;
 }
 
 function getWeekNumber(date: Date): number {
