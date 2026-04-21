@@ -1,6 +1,7 @@
 import { App, Modal } from "obsidian";
 import type { ReviewCard } from "../types";
 import { applyReview } from "./review-scheduler";
+import { previewInterval, formatInterval } from "./sm2";
 
 export class ReviewModal extends Modal {
   private cards: ReviewCard[];
@@ -83,17 +84,24 @@ export class ReviewModal extends Modal {
 
   private showRatingButtons(contentEl: HTMLElement, card: ReviewCard) {
     const btnRow = contentEl.createDiv({ cls: "rating-buttons" });
+    const isFirst = card.reviewData.repetitions === 0;
 
-    const ratings: { label: string; cls: string; value: number; hint: string }[] = [
-      { label: "再来", cls: "again", value: 1, hint: "不记得" },
-      { label: "困难", cls: "hard", value: 2, hint: "想起来了但很吃力" },
-      { label: "良好", cls: "good", value: 3, hint: "正常回忆起来" },
-      { label: "简单", cls: "easy", value: 4, hint: "毫不费力" },
+    const ratings: { label: string; cls: string; value: number; firstHint: string }[] = [
+      { label: "忘了", cls: "again", value: 1, firstHint: "重头再来" },
+      { label: "模糊", cls: "hard", value: 2, firstHint: "重头再来" },
+      { label: "记得", cls: "good", value: 3, firstHint: "→ 6天后再见" },
+      { label: "轻松", cls: "easy", value: 4, firstHint: "→ 间隔更长" },
     ];
 
     for (const r of ratings) {
-      const btn = btnRow.createEl("button", { cls: `rating-btn ${r.cls}`, text: r.label });
-      btn.title = r.hint;
+      const btn = btnRow.createEl("button", { cls: `rating-btn ${r.cls}` });
+      btn.createDiv({ cls: "rating-label", text: r.label });
+      if (isFirst) {
+        btn.createDiv({ cls: "rating-hint", text: r.firstHint });
+      } else {
+        const days = previewInterval(card.reviewData, r.value as any);
+        btn.createDiv({ cls: "rating-hint", text: formatInterval(days) });
+      }
       btn.addEventListener("click", async () => {
         await applyReview(this.plugin, card.cardId, card.filePath, r.value);
         this.currentIdx++;

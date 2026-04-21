@@ -1,9 +1,9 @@
 {
-  "id": "para-waves",
-  "name": "ParaWaves",
+  "id": "pensea",
+  "name": "Pensea",
   "version": "0.1.0",
   "minAppVersion": "1.1.0",
-  "description": "PARA + methodology loop + LLM Wiki: Sparks kanban, spaced repetition, AI-powered knowledge base",
+  "description": "思海 — PARA + 灵感流转 + 间隔重复 + LLM 知识库",
   "author": "odo",
   "authorUrl": "",
   "isDesktopOnly": false

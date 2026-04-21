@@ -95,6 +95,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--pw-gap);
+  min-width: 280px;
 }
 
 /* ─── Stats Row ─── */
@@ -467,88 +468,113 @@
   vertical-align: -1px;
 }
 
-/* ─── Daily Overview / Calendar ─── */
+/* ─── Daily Overview / Calendar — 文艺范 ─── */
 
 .pw-daily-section {
-  padding: var(--pw-card-padding);
-  background: var(--pw-surface);
-  border-radius: var(--pw-card-radius);
-  box-shadow: var(--pw-shadow);
-  position: relative;
-  overflow: hidden;
+  padding: 16px 14px 12px;
+  background: transparent;
+  border-radius: var(--pw-radius);
+  border: none;
 }
 
-.pw-daily-section::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, #6366F1, #9585B4, #D4915C);
-  border-radius: var(--pw-card-radius) var(--pw-card-radius) 0 0;
-}
-
-.pw-daily-date-row {
+/* Header: month + lunar year — editorial style */
+.pw-daily-header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.pw-daily-date {
-  font-weight: 700;
-  font-size: var(--pw-font-size);
-  letter-spacing: -0.01em;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.pw-daily-date svg {
-  opacity: 0.6;
+.pw-daily-month {
+  font-weight: 300;
+  font-size: 1.05em;
+  letter-spacing: 0.08em;
+  color: var(--text-normal);
 }
 
 .pw-daily-lunar {
-  font-size: var(--pw-font-size-xs);
-  color: var(--pw-text-secondary);
-  font-weight: 500;
+  font-size: 0.68em;
+  color: var(--text-faint);
+  font-weight: 400;
+  letter-spacing: 0.04em;
 }
 
-/* Calendar Grid */
+/* Today hero — 大号日期 + 星期 + 农历 */
+.pw-daily-today-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 10px 0 12px;
+}
+
+.pw-daily-today-num {
+  font-size: 2.6em;
+  font-weight: 200;
+  line-height: 1;
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.pw-daily-today-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-bottom: 2px;
+}
+
+.pw-daily-today-weekday {
+  font-size: 0.78em;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+
+.pw-daily-today-lunar {
+  font-size: 0.68em;
+  color: var(--text-faint);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+}
+
+/* Calendar Grid — clean editorial */
 
 .pw-cal-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   margin-bottom: 2px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .pw-cal-weekday {
   text-align: center;
-  font-size: var(--pw-font-size-xs);
-  color: var(--pw-text-faint);
-  font-weight: 700;
-  padding: 3px 0;
-  letter-spacing: 0.05em;
+  font-size: 0.62em;
+  color: var(--text-faint);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  padding: 2px 0;
 }
 
 .pw-cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+  gap: 2px 1px;
 }
 
 .pw-cal-cell {
   position: relative;
   text-align: center;
-  padding: 4px 0;
-  border-radius: var(--pw-radius-xs);
+  padding: 2px 0 3px;
+  border-radius: 4px;
   cursor: pointer;
-  transition: all var(--pw-transition-fast);
+  transition: background 150ms ease;
 }
 
 .pw-cal-cell:hover {
-  background: var(--pw-hover);
+  background: var(--background-modifier-hover);
 }
 
 .pw-cal-cell.pw-cal-empty {
@@ -560,113 +586,189 @@
 }
 
 .pw-cal-num {
-  font-size: var(--pw-font-size);
+  font-size: 0.76em;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.pw-cal-cell.pw-cal-has-note .pw-cal-num {
+  color: var(--text-normal);
   font-weight: 500;
-  line-height: 1.5;
-}
-
-.pw-cal-cell.pw-cal-has-note {
-  background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(149,133,180,0.08));
-}
-
-.pw-cal-cell.pw-cal-has-note:hover {
-  background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(149,133,180,0.14));
 }
 
 .pw-cal-cell.pw-cal-today .pw-cal-num {
-  background: linear-gradient(135deg, #6366F1, #9585B4);
-  color: #fff;
+  position: relative;
+  font-weight: 600;
+  color: var(--text-on-accent);
+}
+
+.pw-cal-cell.pw-cal-today .pw-cal-num::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  box-shadow: var(--pw-shadow-accent);
+  background: var(--interactive-accent);
+  z-index: -1;
 }
 
 .pw-cal-dot {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: var(--pw-accent);
-  margin: 1px auto 0;
+  background: var(--text-muted);
+  margin: 0 auto;
+  opacity: 0.4;
 }
 
-.pw-cal-cell.pw-cal-today.pw-cal-has-note .pw-cal-dot {
-  background: rgba(255, 255, 255, 0.7);
-}
+/* Task area — gentle reminder */
 
-/* Daily Progress */
-
-.pw-daily-progress-wrap {
+.pw-daily-task-header {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0 4px;
-  padding-top: 6px;
-  border-top: 1px solid var(--pw-border);
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.72em;
+  font-weight: 500;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
 }
 
-.pw-daily-progress-label {
-  font-size: var(--pw-font-size-xs);
-  color: var(--pw-text-secondary);
+.pw-daily-task-pct {
+  font-size: 0.9em;
+  color: var(--text-faint);
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  min-width: 28px;
+  font-weight: 400;
 }
 
 .pw-daily-progress-bar {
-  flex: 1;
-  height: 4px;
-  background: var(--pw-border);
-  border-radius: 2px;
+  height: 2px;
+  background: var(--background-modifier-border);
+  border-radius: 1px;
   overflow: hidden;
+  margin-bottom: 6px;
 }
 
 .pw-daily-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #6366F1, #9585B4, #C4956A);
-  border-radius: 2px;
-  transition: width 400ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  background: var(--text-muted);
+  border-radius: 1px;
+  transition: width 400ms ease;
+  opacity: 0.6;
 }
 
 .pw-daily-tasks {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
 }
 
 .pw-daily-task {
-  font-size: var(--pw-font-size-sm);
-  padding: 3px 6px;
-  border-radius: var(--pw-radius-xs);
+  font-size: 0.74em;
+  padding: 2px 4px;
+  border-radius: 3px;
   cursor: pointer;
-  transition: background var(--pw-transition-fast);
+  transition: background 150ms ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
 .pw-daily-task:hover {
-  background: var(--pw-hover);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 
-.pw-daily-task.done {
-  color: var(--pw-text-faint);
+.pw-daily-task-all-done {
+  color: var(--text-muted);
+  opacity: 0.7;
 }
 
 .pw-daily-empty {
-  font-size: var(--pw-font-size-sm);
-  color: var(--pw-text-faint);
+  font-size: 0.74em;
+  color: var(--text-faint);
   padding: 4px 0;
   cursor: pointer;
-  transition: color var(--pw-transition);
 }
 
 .pw-daily-empty:hover {
-  color: var(--pw-accent);
+  color: var(--interactive-accent);
+}
+
+/* ─── Daily Note Editor — 文艺范统一 ─── */
+
+/* 阅读模式 */
+.workspace-leaf-content[data-path*="Daily/"] .markdown-preview-view {
+  font-weight: 400;
+  line-height: 1.85;
+}
+
+.workspace-leaf-content[data-path*="Daily/"] .markdown-preview-view h2 {
+  font-weight: 400;
+  font-size: 1.1em;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 4px;
+  margin-top: 2em;
+}
+
+/* 日期导航 << [[昨天]] | [[明天]] >> */
+.workspace-leaf-content[data-path*="Daily/"] .markdown-preview-view p:first-of-type {
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.9em;
+  letter-spacing: 0.06em;
+  margin: 0.5em 0 1.5em;
+}
+
+.workspace-leaf-content[data-path*="Daily/"] .markdown-preview-view p:first-of-type .internal-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 1px;
+  transition: color 150ms ease;
+}
+
+.workspace-leaf-content[data-path*="Daily/"] .markdown-preview-view p:first-of-type .internal-link:hover {
+  color: var(--interactive-accent);
+  border-bottom-color: var(--interactive-accent);
+}
+
+/* 任务列表 */
+.workspace-leaf-content[data-path*="Daily/"] .markdown-preview-view .task-list-item {
+  font-size: 0.95em;
+  color: var(--text-muted);
+}
+
+.workspace-leaf-content[data-path*="Daily/"] .markdown-preview-view .task-list-item.is-checked {
+  color: var(--text-faint);
+  text-decoration: none;
+}
+
+.workspace-leaf-content[data-path*="Daily/"] .markdown-preview-view .task-list-item-checkbox {
+  accent-color: var(--interactive-accent);
+}
+
+/* 源码 / 实时预览模式 */
+.workspace-leaf-content[data-path*="Daily/"] .cm-content {
+  font-weight: 400;
+  line-height: 1.85;
+}
+
+.workspace-leaf-content[data-path*="Daily/"] .cm-header-2 {
+  font-weight: 400 !important;
+  letter-spacing: 0.06em;
 }
 
 /* ─── Daily Motivation ─── */

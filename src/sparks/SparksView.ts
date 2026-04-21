@@ -166,30 +166,33 @@ export class SparksView extends ItemView {
   // ─── 今日概览（月历卡片）───
 
   private async renderDailyOverview(parent: HTMLElement) {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = today.getMonth(); // 0-indexed
-    const dateStr = today.toISOString().slice(0, 10);
-    const lunar = solarToLunar(year, month + 1, today.getDate());
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth(); // 0-indexed
+    const todayDate = now.getDate();
+    const todayStr = localDateStr(now);
+    const lunar = solarToLunar(year, month + 1, todayDate);
 
     const section = parent.createDiv({ cls: "pw-daily-section" });
 
-    // 月份标题 + 农历年
-    const dateRow = section.createDiv({ cls: "pw-daily-date-row" });
-    dateRow.createSpan({ cls: "pw-daily-date" }).innerHTML = `${iconHTML("pw-calendar", 14)} ${month + 1}月`;
-    dateRow.createSpan({ cls: "pw-daily-lunar", text: `${lunar.ganZhi} ${lunar.shengXiao}` });
+    // ─── 头部：月份 · 年份 | 农历年 ───
+    const header = section.createDiv({ cls: "pw-daily-header" });
+    const monthNames = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
+    header.createSpan({ cls: "pw-daily-month", text: `${monthNames[month]} ${year}` });
+    header.createSpan({ cls: "pw-daily-lunar", text: `${lunar.ganZhi}${lunar.shengXiao}年` });
 
-    // 星期头
-    const headerRow = section.createDiv({ cls: "pw-cal-header" });
-    for (const w of ["日", "一", "二", "三", "四", "五", "六"]) {
-      headerRow.createDiv({ cls: "pw-cal-weekday", text: w });
-    }
+    // ─── 今日 ───
+    const todayRow = section.createDiv({ cls: "pw-daily-today-row" });
+    todayRow.createDiv({ cls: "pw-daily-today-num", text: String(todayDate) });
+    const todayInfo = todayRow.createDiv({ cls: "pw-daily-today-info" });
+    const weekday = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"][now.getDay()];
+    todayInfo.createDiv({ cls: "pw-daily-today-weekday", text: weekday });
+    todayInfo.createDiv({ cls: "pw-daily-today-lunar", text: `${lunar.monthStr}${lunar.dayStr}` });
 
-    // 计算月历网格
-    const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+    // ─── 月历网格 ───
+    const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-    // 扫描已有日记
     const dailyFiles = new Set<string>();
     const folder = this.app.vault.getAbstractFileByPath(this.settings.dailyPath);
     if (folder && (folder as any).children) {
@@ -198,6 +201,12 @@ export class SparksView extends ItemView {
           dailyFiles.add(c.name.replace(".md", ""));
         }
       }
+    }
+
+    // 星期头
+    const calHeader = section.createDiv({ cls: "pw-cal-header" });
+    for (const w of ["日", "一", "二", "三", "四", "五", "六"]) {
+      calHeader.createDiv({ cls: "pw-cal-weekday", text: w });
     }
 
     const grid = section.createDiv({ cls: "pw-cal-grid" });
@@ -209,29 +218,30 @@ export class SparksView extends ItemView {
 
     // 日期格子
     for (let d = 1; d <= daysInMonth; d++) {
-      const cell = grid.createDiv({ cls: "pw-cal-cell" });
       const ds = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      const isToday = d === today.getDate();
+      const isToday = d === todayDate;
+      const hasNote = dailyFiles.has(ds);
 
+      const cell = grid.createDiv({ cls: "pw-cal-cell" });
       if (isToday) cell.addClass("pw-cal-today");
-      if (dailyFiles.has(ds)) cell.addClass("pw-cal-has-note");
+      if (hasNote) cell.addClass("pw-cal-has-note");
 
       cell.createDiv({ cls: "pw-cal-num", text: String(d) });
-      if (dailyFiles.has(ds)) cell.createDiv({ cls: "pw-cal-dot" });
+      if (hasNote && !isToday) cell.createDiv({ cls: "pw-cal-dot" });
 
       const dailyPath = normalizePath(`${this.settings.dailyPath}/${ds}.md`);
       cell.addEventListener("click", () => {
         const file = this.app.vault.getAbstractFileByPath(dailyPath);
-        if (file) {
+        if (file && file instanceof TFile) {
           this.app.workspace.openLinkText(dailyPath, "", false);
-        } else if (confirm(`创建 ${ds} 的日记？`)) {
+        } else {
           this.createDailyNote(dailyPath, ds);
         }
       });
     }
 
-    // 今日任务区
-    const dailyPath = normalizePath(`${this.settings.dailyPath}/${dateStr}.md`);
+    // ─── 今日任务 ───
+    const dailyPath = normalizePath(`${this.settings.dailyPath}/${todayStr}.md`);
     const dailyFile = this.app.vault.getAbstractFileByPath(dailyPath);
 
     if (dailyFile && dailyFile instanceof TFile) {
@@ -239,37 +249,43 @@ export class SparksView extends ItemView {
       const tasks = this.extractTasks(content);
       if (tasks.length > 0) {
         const done = tasks.filter((t) => t.done).length;
-        const progressWrap = section.createDiv({ cls: "pw-daily-progress-wrap" });
+
+        const taskHeader = section.createDiv({ cls: "pw-daily-task-header" });
+        taskHeader.createSpan({ text: "今日任务" });
         const pct = Math.round((done / tasks.length) * 100);
-        progressWrap.createDiv({ cls: "pw-daily-progress-label", text: `${done}/${tasks.length}` });
-        const bar = progressWrap.createDiv({ cls: "pw-daily-progress-bar" });
-        bar.createDiv({ cls: "pw-daily-progress-fill" }).style.width = `${pct}%`;
+        taskHeader.createSpan({ cls: "pw-daily-task-pct", text: `${done}/${tasks.length}` });
+
+        const progressBar = section.createDiv({ cls: "pw-daily-progress-bar" });
+        progressBar.createDiv({ cls: "pw-daily-progress-fill" }).style.width = `${pct}%`;
 
         const taskList = section.createDiv({ cls: "pw-daily-tasks" });
         const pending = tasks.filter((t) => !t.done).slice(0, 5);
         for (const task of pending) {
           const row = taskList.createDiv({ cls: "pw-daily-task" });
           row.textContent = `☐ ${task.text}`;
-          row.addEventListener("click", () =>
-            this.app.workspace.openLinkText(dailyPath, "", false)
-          );
-        }
-        const extra = tasks.length - done - pending.length;
-        if (extra > 0) {
-          taskList.createDiv({ cls: "pw-daily-task done", text: `... 还有 ${extra} 项已完成` });
+          row.addEventListener("click", () => {
+            this.app.workspace.openLinkText(dailyPath, "", false);
+          });
         }
         if (pending.length === 0 && done > 0) {
-          taskList.createDiv({ cls: "pw-daily-task", text: "🎉 今日任务已全部完成" });
+          taskList.createDiv({ cls: "pw-daily-task pw-daily-task-all-done", text: "今日任务已全部完成" });
         }
       }
     }
   }
 
   private async createDailyNote(path: string, ds: string) {
-    const template = this.getDailyTemplate();
-    await this.app.vault.create(path, template);
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (file) await this.app.workspace.getLeaf(false).openFile(file as any);
+    this.busy = true; // Block kanban refresh during creation
+    try {
+      const template = await this.plugin.generateDailyTemplate(ds);
+      await this.app.vault.create(path, template);
+      await this.app.workspace.openLinkText(path, "", false);
+    } catch (e) {
+      new Notice(`创建日记失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      this.busy = false;
+      this.refresh();
+    }
   }
 
   // ─── Sparks 看板（紧凑列表）───
@@ -406,37 +422,6 @@ export class SparksView extends ItemView {
       }
     }
     return tasks;
-  }
-
-  private getDailyTemplate(): string {
-    const today = new Date().toISOString().slice(0, 10);
-    return `---
-type: 日记
-date: ${today}
-weather: ""
-mood: ""
-tags:
-  - 日记
-created: ${today}
----
-
-**今日三件事**
-- [ ]
-- [ ]
-- [ ]
-
-***
-
-## 记录
-
-***
-
-> [!quote] 感恩
->
-
-**明日**
--
-`;
   }
 
   // ─── 每日宣言 ───
@@ -688,10 +673,15 @@ created: ${today}
       try {
         await onClick();
       } finally {
-        btn.textContent = original;
+        btn.innerHTML = original;
         btn.disabled = false;
         btn.removeClass("pw-action-loading");
       }
     });
   }
+}
+
+// Local date string (avoids UTC timezone shift from toISOString)
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

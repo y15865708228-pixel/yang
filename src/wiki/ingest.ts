@@ -68,7 +68,6 @@ export async function processInbox(
         parsed = extractJSON(reply);
       } catch (e) {
         new Notice(`解析失败: ${file.basename} — ${e instanceof Error ? e.message : "JSON错误"}，跳过`);
-        console.warn("ParaWaves ingest JSON parse error. Raw reply:", reply);
         continue;
       }
 
@@ -131,7 +130,6 @@ export async function processInbox(
 
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error(`ParaWaves ingest error for ${file.path}:`, msg);
       new Notice(`处理失败: ${file.basename} — ${msg.substring(0, 50)}`);
     }
   }

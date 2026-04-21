@@ -53,11 +53,9 @@ export class WikiChatModal extends Modal {
         const lines = answer.split("\n");
         for (const line of lines) {
           const p = loadingEl.createEl("p");
-          p.textContent = line;
           // 高亮 [[双链]]
           const linked = line.match(/\[\[([^\]]+)\]\]/g);
           if (linked) {
-            p.empty();
             let remaining = line;
             for (const link of linked) {
               const idx = remaining.indexOf(link);
@@ -73,6 +71,8 @@ export class WikiChatModal extends Modal {
               remaining = remaining.substring(idx + link.length);
             }
             if (remaining) p.appendChild(document.createTextNode(remaining));
+          } else {
+            p.textContent = line;
           }
         }
 

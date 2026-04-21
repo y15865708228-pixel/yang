@@ -8,6 +8,7 @@ import type { LLMProvider } from "./llm/provider";
 import { SPARKS_VIEW_TYPE, SparksView } from "./sparks/SparksView";
 import { getSRSData, buildReviewQueue } from "./srs/review-scheduler";
 import { ReviewModal } from "./srs/review-modal";
+import { PENSEA_ICON_SMALL } from "./utils/plugin-icon";
 import { processInbox } from "./wiki/ingest";
 import { WikiChatModal } from "./wiki/wiki-chat-modal";
 import { lintWiki } from "./wiki/lint";
@@ -16,6 +17,7 @@ import { buildEmbeddingIndex, updateEmbeddingIndex } from "./wiki/embedding-inde
 import { formatNote, continueWriting } from "./editor/writing-assist";
 import { archiveMonthlyDaily } from "./daily/monthly-archiver";
 import { registerPWIcons } from "./utils/icons";
+import { autoTitleFile, isGenericName } from "./editor/auto-title";
 
 export default class ParaWavesPlugin extends Plugin {
   settings: ParaWavesSettings = { ...DEFAULT_SETTINGS };
@@ -200,6 +202,24 @@ export default class ParaWavesPlugin extends Plugin {
       },
     });
 
+    // 智能命名
+    this.addCommand({
+      id: "smart-rename",
+      name: "智能命名当前笔记",
+      editorCallback: async (_editor, view) => {
+        if (!this.llmProvider) { new Notice("请先在设置中配置 LLM"); return; }
+        const file = view.file;
+        if (!file) return;
+        new Notice("正在生成标题...");
+        const title = await autoTitleFile(this.app, file, this.llmProvider);
+        if (title) {
+          new Notice(`已重命名为：${title}`);
+        } else {
+          new Notice("无法生成更好的标题");
+        }
+      },
+    });
+
     // 右键菜单：选中文字转 Spark
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
@@ -244,7 +264,8 @@ export default class ParaWavesPlugin extends Plugin {
     this.addSettingTab(new ParaWavesSettingTab(this.app, this));
 
     // Ribbon 图标
-    this.addRibbonIcon("sparkles", "Sparks 看板", () => {
+    addIcon("pensea", PENSEA_ICON_SMALL);
+    this.addRibbonIcon("pensea", "Pensea", () => {
       (this.app as any).commands.executeCommandById("para-waves:open-sparks");
     });
 
@@ -259,6 +280,47 @@ export default class ParaWavesPlugin extends Plugin {
         try { await updateEmbeddingIndex(this.app, this.settings, this.llmProvider, this); } catch {}
       }
     }));
+
+    // 点击日记中的前一天/后一天链接时，自动用模板填充空白的日记
+    this.registerEvent(this.app.vault.on("create", async (file) => {
+      if (!(file instanceof TFile) || file.extension !== "md") return;
+      const ds = file.basename;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return;
+
+      const content = await this.app.vault.read(file);
+      if (content.trim() !== "") return;
+
+      // 如果文件不在 Daily 目录下，移过去
+      let targetFile = file;
+      const dailyDir = this.settings.dailyPath;
+      if (!file.path.startsWith(dailyDir + "/")) {
+        const newPath = normalizePath(`${dailyDir}/${file.name}`);
+        if (!this.app.vault.getAbstractFileByPath(newPath)) {
+          await this.app.fileManager.renameFile(file, newPath);
+          targetFile = this.app.vault.getAbstractFileByPath(newPath) as TFile;
+        }
+      }
+      if (!targetFile) return;
+
+      const template = await this.generateDailyTemplate(ds);
+      await this.app.vault.modify(targetFile, template);
+    }));
+
+    // 自动智能命名：文件修改时，如果是默认名且有足够内容，自动生成标题
+    if (this.llmProvider) {
+      this.registerEvent(this.app.vault.on("modify", async (file) => {
+        if (!(file instanceof TFile) || file.extension !== "md") return;
+        if (!isGenericName(file.basename)) return;
+        // 延迟执行，等用户写完一段再触发
+        const f = file;
+        setTimeout(async () => {
+          try {
+            const title = await autoTitleFile(this.app, f, this.llmProvider!);
+            if (title) new Notice(`已自动命名为：${title}`);
+          } catch {}
+        }, 3000);
+      }));
+    }
   }
 
   onunload() {
@@ -285,4 +347,57 @@ export default class ParaWavesPlugin extends Plugin {
       }
     }
   }
+
+  async generateDailyTemplate(ds: string): Promise<string> {
+    const [year, month, day] = ds.split("-").map(Number);
+    const today = new Date(year, month - 1, day);
+
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yd = localDateStr(yesterday);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const td = localDateStr(tomorrow);
+
+    // 迁移昨天的未完成任务
+    let migratedTasks = "";
+    const yesterdayPath = normalizePath(`${this.settings.dailyPath}/${yd}.md`);
+    const yesterdayFile = this.app.vault.getAbstractFileByPath(yesterdayPath);
+    if (yesterdayFile && yesterdayFile instanceof TFile) {
+      const content = await this.app.vault.cachedRead(yesterdayFile);
+      for (const line of content.split("\n")) {
+        const match = line.match(/^- \[ \]\s*(.+)/);
+        if (match && match[1].trim()) {
+          migratedTasks += `- [ ] ${match[1].trim()}\n`;
+        }
+      }
+    }
+
+    return [
+      "---",
+      "type: 日记",
+      `date: ${ds}`,
+      'weather: ""',
+      'mood: ""',
+      "tags:",
+      "  - 日记",
+      `created: ${ds}`,
+      "---",
+      "",
+      `<< [[${yd}]] | [[${td}]] >>`,
+      "",
+      "## Tasks",
+      "",
+      migratedTasks + "- [ ] ",
+      "",
+      "## Log",
+      "",
+      "",
+    ].join("\n");
+  }
+}
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

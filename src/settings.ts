@@ -27,7 +27,7 @@ export class ParaWavesSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "ParaWaves 设置" });
+    containerEl.createEl("h2", { text: "Pensea 设置" });
 
     // ─── LLM 配置 ───
     containerEl.createEl("h3", { text: "LLM 提供商" });

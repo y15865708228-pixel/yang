@@ -1,7 +1,7 @@
 {
-  "name": "para-waves",
+  "name": "pensea",
   "version": "0.1.0",
-  "description": "PARA + methodology loop + LLM Wiki for Obsidian",
+  "description": "Pensea (思海) — PARA + 灵感流转 + 间隔重复 + LLM 知识库",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
