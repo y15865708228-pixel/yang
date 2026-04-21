@@ -3,7 +3,7 @@ import type { ParaWavesSettings } from "../types";
 import type { LLMProvider } from "../llm/provider";
 import { semanticSearch, getEmbeddingIndex } from "./embedding-index";
 
-const QUERY_SYSTEM = `你是 ParaWaves 知识库的问答助手。请基于提供的 wiki 内容回答问题。
+const QUERY_SYSTEM = `你是 Pensea 知识库的问答助手。请基于提供的 wiki 内容回答问题。
 规则：
 1. 回答必须基于提供的 wiki 内容，不要编造
 2. 在回答中使用 [[双链]] 引用相关的 wiki 页面

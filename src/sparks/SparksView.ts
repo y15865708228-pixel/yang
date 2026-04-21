@@ -44,7 +44,7 @@ export class SparksView extends ItemView {
   }
 
   getViewType(): string { return SPARKS_VIEW_TYPE; }
-  getDisplayText(): string { return "ParaWaves"; }
+  getDisplayText(): string { return "Pensea"; }
   getIcon(): string { return "sparkles"; }
 
   async onOpen() {

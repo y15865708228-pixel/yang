@@ -3,3 +3,4 @@ main.js
 main-test.js
 *.js.map
 release/
+*.zip

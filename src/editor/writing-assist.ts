@@ -4,7 +4,7 @@ import type { LLMProvider } from "../llm/provider";
 
 // ─── 整理笔记 ───
 
-const FORMAT_SYSTEM = `你是 ParaWaves 笔记排版助手。用户给你一篇笔记，你需要重新排版让它更清晰美观。
+const FORMAT_SYSTEM = `你是 Pensea 笔记排版助手。用户给你一篇笔记，你需要重新排版让它更清晰美观。
 
 规则：
 1. 保留 frontmatter（---之间的内容）原封不动
@@ -54,7 +54,7 @@ export async function formatNote(
 
 // ─── 继续写 ───
 
-const CONTINUE_SYSTEM = `你是 ParaWaves 写作助手。用户正在写一篇笔记，写到一半不知道怎么继续。
+const CONTINUE_SYSTEM = `你是 Pensea 写作助手。用户正在写一篇笔记，写到一半不知道怎么继续。
 
 你需要：
 1. 分析笔记类型（从 frontmatter 的 type 字段判断）
