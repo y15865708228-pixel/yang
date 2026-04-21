@@ -266,7 +266,7 @@ export default class ParaWavesPlugin extends Plugin {
     // Ribbon 图标
     addIcon("pensea", PENSEA_ICON_SMALL);
     this.addRibbonIcon("pensea", "Pensea", () => {
-      (this.app as any).commands.executeCommandById("para-waves:open-sparks");
+      (this.app as any).commands.executeCommandById("pensea:open-sparks");
     });
 
     // Wiki 文件变更时自动增量更新 embedding 索引

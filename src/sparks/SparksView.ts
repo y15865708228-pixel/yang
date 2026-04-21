@@ -12,7 +12,7 @@ import { solarToLunar } from "../utils/lunar";
 import { getDailyMotivation } from "../utils/iching";
 import { iconHTML } from "../utils/icons";
 
-export const SPARKS_VIEW_TYPE = "para-waves-sparks";
+export const SPARKS_VIEW_TYPE = "pensea-sparks";
 
 const STATUS_COLUMNS: { status: SparkStatus; icon: string; label: string }[] = [
   { status: "🫧待孵化", icon: "🫧", label: "待孵化" },
@@ -394,7 +394,8 @@ export class SparksView extends ItemView {
         }
         // ❌已放弃 不显示流转按钮
 
-        row.addEventListener("contextmenu", (e) => {
+        // 右键菜单（桌面）和长按菜单（移动端）
+        const showStatusMenu = (e: MouseEvent | TouchEvent) => {
           const menu = new Menu();
           for (const t of STATUS_COLUMNS) {
             if (t.status !== spark.status) {
@@ -407,7 +408,37 @@ export class SparksView extends ItemView {
               });
             }
           }
-          menu.showAtMouseEvent(e);
+          if (e instanceof MouseEvent) {
+            menu.showAtMouseEvent(e);
+          } else {
+            const touch = e.changedTouches[0];
+            menu.showAtPosition({ x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 });
+          }
+        };
+
+        row.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          showStatusMenu(e);
+        });
+
+        // 移动端长按支持
+        let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+        let longPressFired = false;
+
+        row.addEventListener("touchstart", (e) => {
+          longPressFired = false;
+          longPressTimer = setTimeout(() => {
+            longPressFired = true;
+            showStatusMenu(e as unknown as TouchEvent);
+          }, 500);
+        }, { passive: true });
+
+        row.addEventListener("touchend", () => {
+          if (longPressTimer) clearTimeout(longPressTimer);
+        });
+
+        row.addEventListener("touchmove", () => {
+          if (longPressTimer) clearTimeout(longPressTimer);
         });
       }
     }

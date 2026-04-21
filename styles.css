@@ -1011,3 +1011,188 @@
   background: var(--pw-border);
   margin: 24px 0;
 }
+
+/* ─── Mobile Responsive ─── */
+
+@media (max-width: 600px) {
+  /* Dashboard */
+  .pw-dashboard {
+    padding: 10px 6px;
+    gap: 8px;
+    min-width: unset;
+  }
+
+  /* Stats: 2x2 grid instead of 4 columns */
+  .pw-stats-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+  }
+
+  .pw-stat-card {
+    padding: 8px 4px;
+  }
+
+  .pw-stat-card .value {
+    font-size: 1em;
+  }
+
+  /* Quick Actions: 2 columns */
+  .pw-quick-actions {
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+  }
+
+  .pw-action-btn {
+    font-size: 0.72em;
+    padding: 10px 4px;
+  }
+
+  /* Calendar: more compact */
+  .pw-daily-section {
+    padding: 10px 8px;
+  }
+
+  .pw-daily-month {
+    font-size: 0.95em;
+  }
+
+  .pw-daily-today-num {
+    font-size: 2.2em;
+  }
+
+  .pw-cal-num {
+    font-size: 0.7em;
+  }
+
+  .pw-cal-cell.pw-cal-today .pw-cal-num::before {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Sparks: slightly larger touch targets */
+  .pw-sparks-row {
+    padding: 8px 10px;
+  }
+
+  .pw-sparks-next {
+    padding: 4px 10px;
+    font-size: 0.72em;
+  }
+
+  /* Review Modal: full width buttons */
+  .pw-review-modal .rating-buttons {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .pw-review-modal .rating-btn {
+    flex: 1;
+    min-width: 70px;
+    padding: 12px 8px;
+    text-align: center;
+  }
+
+  .pw-review-modal .card-front,
+  .pw-review-modal .card-back {
+    padding: 14px 16px;
+    min-height: 120px;
+  }
+
+  /* Wiki Chat */
+  .pw-wiki-chat .message {
+    max-width: 92%;
+    padding: 8px 12px;
+  }
+
+  .pw-wiki-chat .input-row {
+    padding: 10px 12px;
+  }
+
+  .pw-wiki-chat .input-row input {
+    padding: 8px 14px;
+    font-size: 16px; /* prevent iOS zoom */
+  }
+}
+
+/* ─── Touch-friendly ─── */
+
+/* Mobile: bigger touch targets, no hover states */
+@media (hover: none) and (pointer: coarse) {
+  .pw-action-btn:hover {
+    transform: none;
+    background: var(--pw-surface);
+    box-shadow: var(--pw-shadow);
+  }
+
+  .pw-action-btn:active {
+    transform: scale(0.96);
+    background: var(--pw-surface-alt);
+  }
+
+  .pw-stat-card:hover {
+    transform: none;
+    box-shadow: var(--pw-shadow);
+  }
+
+  .pw-sparks-row:hover {
+    background: transparent;
+  }
+
+  .pw-sparks-row:active {
+    background: var(--pw-hover);
+  }
+
+  .pw-cal-cell:hover {
+    background: transparent;
+  }
+
+  .pw-cal-cell:active {
+    background: var(--background-modifier-hover);
+  }
+
+  .pw-daily-task:hover {
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  .pw-daily-task:active {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
+
+  /* Larger tap areas for calendar */
+  .pw-cal-cell {
+    padding: 4px 0 5px;
+  }
+
+  .pw-cal-num {
+    line-height: 1.8;
+  }
+
+  /* Larger tap areas for sparks */
+  .pw-sparks-next {
+    padding: 4px 12px;
+  }
+}
+
+/* ─── Obsidian Mobile App Detection ─── */
+
+.is-mobile .pw-dashboard {
+  padding: 10px 8px;
+}
+
+.is-mobile .pw-action-btn {
+  padding: 10px 6px;
+}
+
+.is-mobile .pw-sparks-row {
+  padding: 8px 10px;
+}
+
+.is-mobile .pw-cal-cell {
+  padding: 4px 0 5px;
+}
+
+.is-mobile .pw-review-modal .rating-btn {
+  padding: 12px 16px;
+}
