@@ -1,6 +1,6 @@
 {
   "name": "pensea",
-  "version": "0.2.0",
+  "version": "0.1.1",
   "description": "Pensea (思海) — PARA + 灵感流转 + 间隔重复 + LLM 知识库",
   "main": "main.js",
   "scripts": {
