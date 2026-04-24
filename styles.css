@@ -284,6 +284,96 @@
 .pw-stale-dot.pw-stale-red { background: var(--pw-red); }
 .pw-stale-dot.pw-stale-orange { background: var(--pw-orange); }
 
+/* ─── Onboarding ─── */
+
+.pw-onboarding {
+  background: var(--pw-bg-secondary);
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 14px;
+  border: 1px solid var(--pw-border);
+}
+
+.pw-onboarding-header {
+  font-weight: 700;
+  font-size: 1.05em;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pw-onboarding-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pw-border);
+}
+
+.pw-onboarding-step:last-child {
+  border-bottom: none;
+}
+
+.pw-onboarding-step.pw-step-done {
+  opacity: 0.5;
+}
+
+.pw-onboarding-step.pw-step-clickable {
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 10px 6px;
+  margin: 0 -6px;
+  transition: background 150ms ease;
+}
+
+.pw-onboarding-step.pw-step-clickable:hover {
+  background: var(--pw-bg-hover);
+}
+
+.pw-step-check {
+  font-size: 1.1em;
+  flex-shrink: 0;
+}
+
+.pw-step-icon {
+  flex-shrink: 0;
+}
+
+.pw-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pw-step-title {
+  font-weight: 600;
+  font-size: 0.92em;
+}
+
+.pw-step-desc {
+  font-size: 0.8em;
+  color: var(--pw-text-secondary);
+}
+
+.pw-onboarding-close {
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px;
+  border-radius: 10px;
+  border: none;
+  background: var(--pw-accent);
+  color: white;
+  font-weight: 700;
+  font-size: 0.92em;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+
+.pw-onboarding-close:hover {
+  opacity: 0.85;
+}
+
 /* ─── Section ─── */
 
 .pw-section-header {

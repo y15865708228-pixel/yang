@@ -2,7 +2,7 @@ import type { LLMConfig, LLMMessage } from "../types";
 
 // LLM Provider 接口
 export interface LLMProvider {
-  chat(messages: LLMMessage[], systemPrompt?: string): Promise<string>;
+  chat(messages: LLMMessage[], systemPrompt?: string, maxTokens?: number): Promise<string>;
   stream(messages: LLMMessage[], systemPrompt?: string): AsyncGenerator<string, void, unknown>;
   embed(texts: string[]): Promise<number[][]>;
 }
@@ -25,7 +25,7 @@ export function createProvider(config: LLMConfig): LLMProvider {
 class OpenAICompatProvider implements LLMProvider {
   constructor(private config: LLMConfig) {}
 
-  async chat(messages: LLMMessage[], systemPrompt?: string): Promise<string> {
+  async chat(messages: LLMMessage[], systemPrompt?: string, maxTokens?: number): Promise<string> {
     const allMessages = systemPrompt
       ? [{ role: "system" as const, content: systemPrompt }, ...messages]
       : messages;
@@ -39,7 +39,7 @@ class OpenAICompatProvider implements LLMProvider {
       body: JSON.stringify({
         model: this.config.model,
         messages: allMessages,
-        max_tokens: this.config.maxTokens ?? 4096,
+        max_tokens: maxTokens ?? this.config.maxTokens ?? 4096,
         temperature: this.config.temperature ?? 0.3,
       }),
     });
@@ -50,7 +50,15 @@ class OpenAICompatProvider implements LLMProvider {
     }
 
     const data = await resp.json();
-    return data.choices?.[0]?.message?.content ?? "";
+    const content = data.choices?.[0]?.message?.content;
+    if (!content && data.choices?.[0]?.finish_reason !== "length") {
+      const finishReason = data.choices?.[0]?.finish_reason;
+      throw new Error(
+        `LLM 返回为空 (finish_reason: ${finishReason ?? "unknown"})。` +
+        `响应: ${JSON.stringify(data).substring(0, 200)}`
+      );
+    }
+    return content ?? "";
   }
 
   async *stream(messages: LLMMessage[], systemPrompt?: string): AsyncGenerator<string, void, unknown> {
@@ -109,14 +117,19 @@ class OpenAICompatProvider implements LLMProvider {
   }
 
   async embed(texts: string[]): Promise<number[][]> {
-    const resp = await fetch(`${this.config.baseURL}/embeddings`, {
+    // 支持独立 Embedding 配置（Kimi/Claude 等不支持 Embedding 的 provider 需要配置）
+    const embBaseURL = this.config.embeddingBaseURL || this.config.baseURL;
+    const embModel = this.config.embeddingModel ?? "text-embedding-3-small";
+    const embKey = this.config.embeddingApiKey || this.config.apiKey;
+
+    const resp = await fetch(`${embBaseURL}/embeddings`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${this.config.apiKey}`,
+        Authorization: `Bearer ${embKey}`,
       },
       body: JSON.stringify({
-        model: this.config.embeddingModel ?? "text-embedding-3-small",
+        model: embModel,
         input: texts,
       }),
     });
@@ -134,10 +147,10 @@ class OpenAICompatProvider implements LLMProvider {
 class ClaudeProvider implements LLMProvider {
   constructor(private config: LLMConfig) {}
 
-  async chat(messages: LLMMessage[], systemPrompt?: string): Promise<string> {
+  async chat(messages: LLMMessage[], systemPrompt?: string, maxTokens?: number): Promise<string> {
     const body: Record<string, unknown> = {
       model: this.config.model,
-      max_tokens: this.config.maxTokens ?? 4096,
+      max_tokens: maxTokens ?? this.config.maxTokens ?? 4096,
       messages: messages.map((m) => ({
         role: m.role === "system" ? "user" : m.role,
         content: m.content,
@@ -222,15 +235,14 @@ class ClaudeProvider implements LLMProvider {
     }
   }
 
-  // Claude 本身不提供 embedding API，fallback 到 OpenAI 兼容格式
-  // 用户可在设置里配置 embeddingBaseURL 指向 OpenAI/DeepSeek 等支持 embedding 的服务
+  // Claude 本身不提供 embedding API，必须配置独立的 Embedding 服务
   async embed(texts: string[]): Promise<number[][]> {
     const embBaseURL = this.config.embeddingBaseURL;
     const embModel = this.config.embeddingModel ?? "text-embedding-3-small";
     const embKey = this.config.embeddingApiKey || this.config.apiKey;
 
     if (!embBaseURL) {
-      throw new Error("Claude 不支持 embedding，请在设置中配置 Embedding API 地址");
+      throw new Error("Claude 不支持 Embedding，请在设置中配置 Embedding API 地址（如 OpenAI、DeepSeek）");
     }
 
     const resp = await fetch(`${embBaseURL}/embeddings`, {
@@ -255,7 +267,7 @@ class ClaudeProvider implements LLMProvider {
 class GeminiProvider implements LLMProvider {
   constructor(private config: LLMConfig) {}
 
-  async chat(messages: LLMMessage[], systemPrompt?: string): Promise<string> {
+  async chat(messages: LLMMessage[], systemPrompt?: string, maxTokens?: number): Promise<string> {
     const contents = messages.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
@@ -264,7 +276,7 @@ class GeminiProvider implements LLMProvider {
     const body: Record<string, unknown> = {
       contents,
       generationConfig: {
-        maxOutputTokens: this.config.maxTokens ?? 4096,
+        maxOutputTokens: maxTokens ?? this.config.maxTokens ?? 4096,
         temperature: this.config.temperature ?? 0.3,
       },
     };

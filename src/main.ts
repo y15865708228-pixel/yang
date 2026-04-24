@@ -14,7 +14,8 @@ import { WikiChatModal } from "./wiki/wiki-chat-modal";
 import { lintWiki } from "./wiki/lint";
 import { collectWeeklyStats, generateWeeklyReport } from "./weekly/weekly-report";
 import { buildEmbeddingIndex, updateEmbeddingIndex } from "./wiki/embedding-index";
-import { formatNote, continueWriting } from "./editor/writing-assist";
+import { formatNote, continueWriting, polishText, expandText, condenseText, rewriteStyle, AVAILABLE_STYLES } from "./editor/writing-assist";
+import { StylePickerModal } from "./editor/style-picker-modal";
 import { archiveMonthlyDaily } from "./daily/monthly-archiver";
 import { registerPWIcons } from "./utils/icons";
 import { autoTitleFile, isGenericName } from "./editor/auto-title";
@@ -257,6 +258,36 @@ export default class ParaWavesPlugin extends Plugin {
             new Notice(`🫧 灵感已创建：${title}`);
           });
         });
+
+        // AI 写作助手菜单（需要选中文字 + LLM 已配置）
+        if (this.llmProvider) {
+          menu.addSeparator();
+          menu.addItem((item) => {
+            item.setTitle("✨ 润色").onClick(async () => {
+              try { new Notice("正在润色..."); await polishText(editor, this.llmProvider!); new Notice("润色完成"); }
+              catch (e) { new Notice(`润色失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
+            });
+          });
+          menu.addItem((item) => {
+            item.setTitle("📝 扩写").onClick(async () => {
+              try { new Notice("正在扩写..."); await expandText(editor, this.llmProvider!); new Notice("扩写完成"); }
+              catch (e) { new Notice(`扩写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
+            });
+          });
+          menu.addItem((item) => {
+            item.setTitle("✂️ 缩写").onClick(async () => {
+              try { new Notice("正在缩写..."); await condenseText(editor, this.llmProvider!); new Notice("缩写完成"); }
+              catch (e) { new Notice(`缩写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
+            });
+          });
+          // 改写风格子菜单
+          menu.addItem((item) => {
+            item.setTitle("🎨 改写风格").onClick(async () => {
+              // Obsidian 不支持嵌套菜单，用 FuzzySuggestModal 选择风格
+              new StylePickerModal(this.app, this.llmProvider!, editor).open();
+            });
+          });
+        }
       })
     );
 

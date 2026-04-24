@@ -6,9 +6,9 @@ import type { ParaWavesSettings } from "./types";
 const PROVIDERS = [
   { name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini" },
   { name: "DeepSeek", baseURL: "https://api.deepseek.com/v1", model: "deepseek-chat" },
-  { name: "Kimi (Moonshot)", baseURL: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k" },
+  { name: "Kimi (Moonshot)", baseURL: "https://api.moonshot.cn/v1", model: "moonshot-v1-auto" },
   { name: "MiniMax", baseURL: "https://api.minimax.chat/v1", model: "MiniMax-Text-01" },
-  { name: "GLM (Zhipu)", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash" },
+  { name: "GLM (Zhipu)", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-5.1" },
   { name: "Ollama (本地)", baseURL: "http://localhost:11434/v1", model: "qwen2.5:7b" },
   { name: "Claude (Anthropic)", baseURL: "https://api.anthropic.com", model: "claude-sonnet-4-20250514" },
   { name: "Gemini (Google)", baseURL: "https://generativelanguage.googleapis.com", model: "gemini-2.0-flash" },
@@ -37,6 +37,10 @@ export class ParaWavesSettingTab extends PluginSettingTab {
       .setDesc("选择预设自动填充 baseURL 和模型")
       .addDropdown((dd) => {
         PROVIDERS.forEach((p, i) => dd.addOption(String(i), p.name));
+        // 预选当前 provider
+        const currentBaseURL = this.plugin.settings.llm.baseURL;
+        const currentIdx = PROVIDERS.findIndex((p) => p.baseURL === currentBaseURL);
+        if (currentIdx >= 0) dd.setValue(String(currentIdx));
         dd.onChange(async (val) => {
           const preset = PROVIDERS[Number(val)];
           this.plugin.settings.llm.baseURL = preset.baseURL;
@@ -109,6 +113,10 @@ export class ParaWavesSettingTab extends PluginSettingTab {
 
     // ─── Embedding 配置 ───
     containerEl.createEl("h3", { text: "Embedding 模型（语义搜索）" });
+    containerEl.createEl("p", {
+      text: "Kimi、Claude 不提供 Embedding API，需填写下方独立地址（如 OpenAI、DeepSeek）。GLM 原生支持 Embedding，无需额外配置。",
+      cls: "setting-item-description",
+    });
 
     new Setting(containerEl)
       .setName("Embedding 模型")

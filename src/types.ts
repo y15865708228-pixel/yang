@@ -124,6 +124,9 @@ export interface ParaWavesSettings {
 
   // Feature toggles
   enableNotifications: boolean;
+
+  // Onboarding
+  onboardingCompleted: boolean;
 }
 
 export const DEFAULT_SETTINGS: ParaWavesSettings = {
@@ -154,4 +157,5 @@ export const DEFAULT_SETTINGS: ParaWavesSettings = {
   staleThresholdIncubate: 7,
 
   enableNotifications: true,
+  onboardingCompleted: false,
 };

@@ -120,6 +120,11 @@ export class SparksView extends ItemView {
     this.statusEl = el.createDiv({ cls: "pw-status-bar" });
     this.applyStatus();
 
+    // 新手引导
+    if (!this.settings.onboardingCompleted) {
+      this.renderOnboarding(el);
+    }
+
     // 统计卡片
     const stats = el.createDiv({ cls: "pw-stats-row" });
     this.stat(stats, "pw-inbox", this.inboxCount, "Inbox");
@@ -161,6 +166,54 @@ export class SparksView extends ItemView {
 
     // ─── 每日宣言 ───
     this.renderMotivation(el);
+  }
+
+  // ─── 新手引导 ───
+
+  private renderOnboarding(parent: HTMLElement) {
+    const guide = parent.createDiv({ cls: "pw-onboarding" });
+
+    const header = guide.createDiv({ cls: "pw-onboarding-header" });
+    header.innerHTML = `${iconHTML("pw-spark", 18)} 欢迎使用 Pensea`;
+
+    const steps = [
+      { icon: "pw-format", title: "初始化 Vault", desc: "创建 PARA 目录和模板", done: this.checkVaultInitialized() },
+      { icon: "pw-spark", title: "创建第一条灵感", desc: "在上方输入框输入想法，回车创建", done: this.sparks.length > 0 },
+      { icon: "pw-cards", title: "配置 LLM（可选）", desc: "设置 → Pensea → 填入 API Key", done: !!this.provider },
+    ];
+
+    for (const step of steps) {
+      const row = guide.createDiv({ cls: `pw-onboarding-step ${step.done ? "pw-step-done" : ""}` });
+      row.innerHTML = `
+        <span class="pw-step-check">${step.done ? "✅" : "⬜"}</span>
+        <span class="pw-step-icon">${iconHTML(step.icon, 16)}</span>
+        <span class="pw-step-text">
+          <span class="pw-step-title">${step.title}</span>
+          <span class="pw-step-desc">${step.desc}</span>
+        </span>`;
+      if (step.title.includes("初始化") && !step.done) {
+        row.addEventListener("click", () => {
+          // @ts-ignore
+          this.app.commands.executeCommandById("pensea:init-vault");
+        });
+        row.addClass("pw-step-clickable");
+      }
+    }
+
+    const allDone = steps.every((s) => s.done);
+    if (allDone) {
+      const closeBtn = guide.createEl("button", { cls: "pw-onboarding-close", text: "开始使用 ✓" });
+      closeBtn.addEventListener("click", async () => {
+        this.settings.onboardingCompleted = true;
+        await this.plugin.saveSettings();
+        this.render();
+      });
+    }
+  }
+
+  private checkVaultInitialized(): boolean {
+    const required = [this.settings.inboxPath, this.settings.projectsPath, this.settings.sparksPath, this.settings.dailyPath];
+    return required.every((p) => !!this.app.vault.getAbstractFileByPath(p));
   }
 
   // ─── 今日概览（月历卡片）───
@@ -544,9 +597,13 @@ export class SparksView extends ItemView {
     if (!editor || !view) { this.setStatus("❌ 请先打开一个笔记", "error"); return; }
     this.busy = true;
     try {
-      this.setStatus("✨ 正在读取笔记内容...");
-      await formatNote(this.app, editor, view, this.provider);
-      this.setStatus("✅ 排版整理完成", "done");
+      this.setStatus("✨ 正在整理排版...");
+      const result = await formatNote(this.app, editor, view, this.provider);
+      if (result === "unchanged") {
+        this.setStatus("✅ 排版未变化，笔记格式已良好", "done");
+      } else {
+        this.setStatus("✅ 排版整理完成", "done");
+      }
       setTimeout(() => this.clearStatus(), 3000);
     } catch (e: unknown) {
       this.setStatus(`❌ ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`, "error");
@@ -678,13 +735,20 @@ export class SparksView extends ItemView {
   // ─── UI 辅助 ───
 
   private getActiveEditor(): { editor: any; view: MarkdownView } | null {
+    // 1. 先尝试当前激活的 markdown 视图
+    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeView?.file && activeView.editor) {
+      return { editor: activeView.editor, view: activeView };
+    }
+    // 2. 点击侧边栏后 SparksView 激活，markdown 视图不再是 active
+    //    从主编辑区（.mod-root）找 markdown 面板
     const leaves = this.app.workspace.getLeavesOfType("markdown");
-    if (leaves.length === 0) return null;
-    const mainLeaf = leaves.find((l) => !(l as any).isFloating) || leaves[0];
-    const view = mainLeaf.view as MarkdownView;
-    const editor = view?.editor;
-    if (!editor || !view?.file) return null;
-    return { editor, view };
+    const mainLeaf = leaves.find((l) =>
+      (l as any).containerEl?.closest(".mod-root")
+    ) || leaves.find((l) => !(l as any).isFloating) || leaves[0];
+    const view = mainLeaf?.view as MarkdownView;
+    if (!view?.file || !view.editor) return null;
+    return { editor: view.editor, view };
   }
 
   private stat(parent: HTMLElement, icon: string, value: number, label: string) {
