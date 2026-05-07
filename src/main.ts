@@ -294,18 +294,6 @@ export default class ParaWavesPlugin extends Plugin {
         if (this.llmProvider && view.file) {
           if (selected) menu.addSeparator();
           menu.addItem((item) => {
-            item.setTitle("📐 整理排版").onClick(async () => {
-              try { new Notice("正在整理排版..."); await formatNote(this.app, editor, view, this.llmProvider!); new Notice("排版完成"); }
-              catch (e) { new Notice(`排版失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
-            });
-          });
-          menu.addItem((item) => {
-            item.setTitle("✍️ 继续写").onClick(async () => {
-              try { await continueWriting(this.app, editor, view, this.llmProvider!); }
-              catch (e) { new Notice(`续写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
-            });
-          });
-          menu.addItem((item) => {
             item.setTitle("🏷️ 智能命名").onClick(async () => {
               const file = view.file;
               if (!file) return;
