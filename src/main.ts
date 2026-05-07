@@ -221,70 +221,96 @@ export default class ParaWavesPlugin extends Plugin {
       },
     });
 
-    // 右键菜单：选中文字转 Spark
+    // 右键菜单
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        if (!(view instanceof MarkdownView)) return;
         const selected = editor.getSelection().trim();
-        if (!selected) return;
-        menu.addItem((item) => {
-          item.setTitle("🫧 转为灵感").onClick(async () => {
-            const title = selected.replace(/[/\\?%*:|"<>]/g, "-").substring(0, 50);
-            const sparkPath = normalizePath(`${this.settings.sparksPath}/${title}.md`);
-            if (this.app.vault.getAbstractFileByPath(sparkPath)) {
-              new Notice("同名灵感已存在");
-              return;
-            }
-            const source = view.file?.path ?? "";
-            const today = localDateStr(new Date());
-            const content = [
-              "---",
-              "type: 灵感卡片",
-              "stage: 待孵化",
-              "spark_status: 🫧待孵化",
-              `title: "${selected.substring(0, 100)}"`,
-              `source: "[[${source}]]"`,
-              'area: ""',
-              'project: ""',
-              "tags:",
-              "  - 灵感",
-              `created: ${today}`,
-              `updated: ${today}`,
-              "---",
-              "",
-              `## ${selected.substring(0, 100)}`,
-              "",
-            ].join("\n");
-            await this.app.vault.create(sparkPath, content);
-            new Notice(`🫧 灵感已创建：${title}`);
-          });
-        });
 
-        // AI 写作助手菜单（需要选中文字 + LLM 已配置）
-        if (this.llmProvider) {
-          menu.addSeparator();
+        // ─── 选中文字时：灵感 + AI 改写 ───
+        if (selected) {
           menu.addItem((item) => {
-            item.setTitle("✨ 润色").onClick(async () => {
-              try { new Notice("正在润色..."); await polishText(editor, this.llmProvider!); new Notice("润色完成"); }
-              catch (e) { new Notice(`润色失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
+            item.setTitle("🫧 转为灵感").onClick(async () => {
+              const title = selected.replace(/[/\\?%*:|"<>]/g, "-").substring(0, 50);
+              const sparkPath = normalizePath(`${this.settings.sparksPath}/${title}.md`);
+              if (this.app.vault.getAbstractFileByPath(sparkPath)) {
+                new Notice("同名灵感已存在");
+                return;
+              }
+              const source = view.file?.path ?? "";
+              const today = localDateStr(new Date());
+              const content = [
+                "---",
+                "type: 灵感卡片",
+                "stage: 待孵化",
+                "spark_status: 🫧待孵化",
+                `title: "${selected.substring(0, 100)}"`,
+                `source: "[[${source}]]"`,
+                'area: ""',
+                'project: ""',
+                "tags:",
+                "  - 灵感",
+                `created: ${today}`,
+                `updated: ${today}`,
+                "---",
+                "",
+                `## ${selected.substring(0, 100)}`,
+                "",
+              ].join("\n");
+              await this.app.vault.create(sparkPath, content);
+              new Notice(`🫧 灵感已创建：${title}`);
+            });
+          });
+
+          if (this.llmProvider) {
+            menu.addSeparator();
+            menu.addItem((item) => {
+              item.setTitle("✨ 润色").onClick(async () => {
+                try { new Notice("正在润色..."); await polishText(editor, this.llmProvider!); new Notice("润色完成"); }
+                catch (e) { new Notice(`润色失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
+              });
+            });
+            menu.addItem((item) => {
+              item.setTitle("📝 扩写").onClick(async () => {
+                try { new Notice("正在扩写..."); await expandText(editor, this.llmProvider!); new Notice("扩写完成"); }
+                catch (e) { new Notice(`扩写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
+              });
+            });
+            menu.addItem((item) => {
+              item.setTitle("✂️ 缩写").onClick(async () => {
+                try { new Notice("正在缩写..."); await condenseText(editor, this.llmProvider!); new Notice("缩写完成"); }
+                catch (e) { new Notice(`缩写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
+              });
+            });
+            menu.addItem((item) => {
+              item.setTitle("🎨 改写风格").onClick(async () => {
+                new StylePickerModal(this.app, this.llmProvider!, editor).open();
+              });
+            });
+          }
+        }
+
+        // ─── 笔记级功能（不需要选中文字）───
+        if (this.llmProvider && view.file) {
+          if (selected) menu.addSeparator();
+          menu.addItem((item) => {
+            item.setTitle("📐 整理排版").onClick(async () => {
+              try { new Notice("正在整理排版..."); await formatNote(this.app, editor, view, this.llmProvider!); new Notice("排版完成"); }
+              catch (e) { new Notice(`排版失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
             });
           });
           menu.addItem((item) => {
-            item.setTitle("📝 扩写").onClick(async () => {
-              try { new Notice("正在扩写..."); await expandText(editor, this.llmProvider!); new Notice("扩写完成"); }
-              catch (e) { new Notice(`扩写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
+            item.setTitle("✍️ 继续写").onClick(async () => {
+              try { await continueWriting(this.app, editor, view, this.llmProvider!); }
+              catch (e) { new Notice(`续写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
             });
           });
           menu.addItem((item) => {
-            item.setTitle("✂️ 缩写").onClick(async () => {
-              try { new Notice("正在缩写..."); await condenseText(editor, this.llmProvider!); new Notice("缩写完成"); }
-              catch (e) { new Notice(`缩写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
-            });
-          });
-          // 改写风格子菜单
-          menu.addItem((item) => {
-            item.setTitle("🎨 改写风格").onClick(async () => {
-              // Obsidian 不支持嵌套菜单，用 FuzzySuggestModal 选择风格
-              new StylePickerModal(this.app, this.llmProvider!, editor).open();
+            item.setTitle("🏷️ 智能命名").onClick(async () => {
+              const file = view.file;
+              if (!file) return;
+              try { new Notice("正在生成标题..."); const title = await autoTitleFile(this.app, file, this.llmProvider!); if (title) { new Notice(`已重命名：${title}`); } else { new Notice("无法生成更好的标题"); } }
+              catch (e) { new Notice(`命名失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
             });
           });
         }
