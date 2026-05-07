@@ -1,10 +1,10 @@
 {
-  "id": "pensea",
-  "name": "Pensea",
-  "version": "0.1.1",
-  "minAppVersion": "1.1.0",
-  "description": "思海 — PARA + 灵感流转 + 间隔重复 + LLM 知识库",
-  "author": "odo",
-  "authorUrl": "https://github.com/y15865708228-pixel",
-  "isDesktopOnly": false
+	"id": "pensea",
+	"name": "Pensea",
+	"version": "0.1.2",
+	"minAppVersion": "1.1.0",
+	"description": "思海 — PARA + 灵感流转 + 间隔重复 + LLM 知识库",
+	"author": "odo",
+	"authorUrl": "https://github.com/y15865708228-pixel",
+	"isDesktopOnly": false
 }
