@@ -1,5 +1,16 @@
 // ParaWaves 类型定义
 
+// ─── Plugin 接口（避免 any + 循环依赖）───
+
+export interface PenseaPlugin {
+  settings: ParaWavesSettings;
+  llmProvider: import("./llm/provider").LLMProvider | null;
+  loadData(): Promise<Record<string, unknown>>;
+  saveData(data: Record<string, unknown>): Promise<void>;
+  saveSettings(): Promise<void>;
+  generateDailyTemplate(ds: string): Promise<string>;
+}
+
 // ─── LLM Provider ───
 
 export interface LLMMessage {
@@ -38,7 +49,7 @@ export interface Spark {
 
 // ─── Spaced Repetition ───
 
-export type Rating = 1 | 2 | 3 | 4 | 5; // Again / Hard / Good / Easy
+export type Rating = 1 | 2 | 3 | 4; // Again / Hard / Good / Easy
 
 export interface ReviewData {
   filePath: string;

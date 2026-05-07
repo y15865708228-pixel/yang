@@ -1,17 +1,17 @@
 import { App, Modal } from "obsidian";
-import type { ReviewCard } from "../types";
+import type { ReviewCard, PenseaPlugin } from "../types";
 import { applyReview } from "./review-scheduler";
 import { previewInterval, formatInterval } from "./sm2";
 
 export class ReviewModal extends Modal {
   private cards: ReviewCard[];
   private currentIdx = 0;
-  private plugin: { loadData: () => Promise<Record<string, unknown>>; saveData: (d: Record<string, unknown>) => Promise<void> };
+  private plugin: PenseaPlugin;
   private onComplete: () => void;
 
   constructor(
     app: App,
-    plugin: { loadData: () => Promise<Record<string, unknown>>; saveData: (d: Record<string, unknown>) => Promise<void> },
+    plugin: PenseaPlugin,
     cards: ReviewCard[],
     onComplete: () => void
   ) {

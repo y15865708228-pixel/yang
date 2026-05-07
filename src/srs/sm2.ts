@@ -36,8 +36,8 @@ export function sm2(review: ReviewData, quality: Rating): ReviewData {
     easeFactor,
     interval,
     repetitions,
-    nextReview: next.toISOString().slice(0, 10),
-    lastReview: now.toISOString().slice(0, 10),
+    nextReview: localDateStr(next),
+    lastReview: localDateStr(now),
   };
 }
 
@@ -64,8 +64,11 @@ export function formatInterval(days: number): string {
   return `${Math.round(days / 365)}年后`;
 }
 
-// 判断是否到期复习（字符串比较，避免时区问题）
+// 判断是否到期复习
 export function isDue(review: ReviewData): boolean {
-  const today = new Date().toISOString().slice(0, 10);
-  return review.nextReview <= today;
+  return review.nextReview <= localDateStr(new Date());
+}
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

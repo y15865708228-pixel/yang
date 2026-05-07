@@ -1,5 +1,5 @@
 import { ItemView, WorkspaceLeaf, Menu, Notice, TFile, normalizePath, MarkdownView } from "obsidian";
-import type { Spark, SparkStatus, ParaWavesSettings } from "../types";
+import type { Spark, SparkStatus, ParaWavesSettings, PenseaPlugin } from "../types";
 import { scanSparks, isStale, updateSparkStatus } from "./spark-engine";
 import { processInbox } from "../wiki/ingest";
 import { lintWiki } from "../wiki/lint";
@@ -26,7 +26,7 @@ type StatusType = "running" | "done" | "error";
 
 export class SparksView extends ItemView {
   private settings: ParaWavesSettings;
-  private plugin: any;
+  private plugin: PenseaPlugin;
   private sparks: Spark[] = [];
   private inboxCount = 0;
   private dueReviews = 0;
@@ -37,7 +37,7 @@ export class SparksView extends ItemView {
   private statusType: StatusType = "running";
   private busy = false;
 
-  constructor(leaf: WorkspaceLeaf, settings: ParaWavesSettings, plugin: any) {
+  constructor(leaf: WorkspaceLeaf, settings: ParaWavesSettings, plugin: PenseaPlugin) {
     super(leaf);
     this.settings = settings;
     this.plugin = plugin;

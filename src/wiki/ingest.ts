@@ -216,15 +216,21 @@ function extractJSON(text: string): Record<string, unknown> {
     return JSON.parse(codeBlockMatch[1].trim());
   }
 
-  // 策略2: 找 { ... } 最外层花括号
+  // 策略2: 找最外层花括号（按深度匹配，避免嵌套花括号截断）
   const braceStart = text.indexOf("{");
-  const braceEnd = text.lastIndexOf("}");
-  if (braceStart >= 0 && braceEnd > braceStart) {
-    const candidate = text.substring(braceStart, braceEnd + 1);
-    try {
-      return JSON.parse(candidate);
-    } catch {
-      // fall through
+  if (braceStart >= 0) {
+    let depth = 0;
+    for (let i = braceStart; i < text.length; i++) {
+      if (text[i] === "{") depth++;
+      else if (text[i] === "}") depth--;
+      if (depth === 0) {
+        const candidate = text.substring(braceStart, i + 1);
+        try {
+          return JSON.parse(candidate);
+        } catch {
+          break;
+        }
+      }
     }
   }
 

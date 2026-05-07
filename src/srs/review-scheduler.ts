@@ -1,8 +1,12 @@
 import { App, TFile } from "obsidian";
-import type { ParaWavesSettings, ReviewData, ReviewCard } from "../types";
+import type { ParaWavesSettings, ReviewData, ReviewCard, PenseaPlugin } from "../types";
 import { sm2, isDue } from "./sm2";
 
 const SRS_DATA_KEY = "srsData";
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 // ─── Flashcard 扫描 ───
 
@@ -88,12 +92,12 @@ function scanFlashcards(body: string): FlashcardPair[] {
 
 // ─── 复习数据持久化 ───
 
-export function getSRSData(plugin: { loadData: () => Promise<Record<string, unknown>> }): Promise<Record<string, ReviewData>> {
+export function getSRSData(plugin: PenseaPlugin): Promise<Record<string, ReviewData>> {
   return plugin.loadData().then((d) => (d?.[SRS_DATA_KEY] as Record<string, ReviewData>) ?? {});
 }
 
 export async function saveSRSData(
-  plugin: { loadData: () => Promise<Record<string, unknown>>; saveData: (d: Record<string, unknown>) => Promise<void> },
+  plugin: PenseaPlugin,
   data: Record<string, ReviewData>
 ): Promise<void> {
   const all = await plugin.loadData();
@@ -137,7 +141,7 @@ export async function buildReviewQueue(
             easeFactor: settings.defaultEaseFactor,
             interval: settings.defaultInterval,
             repetitions: 0,
-            nextReview: new Date().toISOString().slice(0, 10),
+            nextReview: localDateStr(new Date()),
             lastReview: "",
           };
         }
@@ -163,7 +167,7 @@ export async function buildReviewQueue(
           easeFactor: settings.defaultEaseFactor,
           interval: settings.defaultInterval,
           repetitions: 0,
-          nextReview: new Date().toISOString().slice(0, 10),
+          nextReview: localDateStr(new Date()),
           lastReview: "",
         };
       }
@@ -188,7 +192,7 @@ export async function buildReviewQueue(
 // ─── 应用复习结果 ───
 
 export async function applyReview(
-  plugin: { loadData: () => Promise<Record<string, unknown>>; saveData: (d: Record<string, unknown>) => Promise<void> },
+  plugin: PenseaPlugin,
   cardId: string,
   filePath: string,
   quality: number
@@ -199,11 +203,11 @@ export async function applyReview(
     easeFactor: 2.5,
     interval: 1,
     repetitions: 0,
-    nextReview: new Date().toISOString().slice(0, 10),
+    nextReview: localDateStr(new Date()),
     lastReview: "",
   };
 
-  const updated = sm2(review, quality as 1 | 2 | 3 | 4 | 5);
+  const updated = sm2(review, quality as 1 | 2 | 3 | 4);
   data[cardId] = updated;
   await saveSRSData(plugin, data);
 }

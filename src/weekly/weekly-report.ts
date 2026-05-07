@@ -1,5 +1,5 @@
 import { App, Notice, normalizePath, TFile, TFolder } from "obsidian";
-import type { ParaWavesSettings, WeeklyStats, SparkStatus } from "../types";
+import type { ParaWavesSettings, WeeklyStats, SparkStatus, PenseaPlugin } from "../types";
 import { scanSparks } from "../sparks/spark-engine";
 import { getSRSData } from "../srs/review-scheduler";
 
@@ -7,11 +7,13 @@ import { getSRSData } from "../srs/review-scheduler";
 export async function collectWeeklyStats(
   app: App,
   settings: ParaWavesSettings,
-  plugin: { loadData: () => Promise<Record<string, unknown>> }
+  plugin: PenseaPlugin
 ): Promise<WeeklyStats> {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const weekLabel = `W${getWeekNumber(now)}`;
+  const todayStr = localDateStr(now);
+  const weekAgoStr = localDateStr(weekAgo);
 
   // 1. 新建笔记数
   const allFiles = app.vault.getMarkdownFiles();
@@ -45,10 +47,9 @@ export async function collectWeeklyStats(
   const srsData = await getSRSData(plugin);
   let reviewsCompleted = 0;
   let reviewsDue = 0;
-  const today = now.toISOString().slice(0, 10);
   for (const review of Object.values(srsData)) {
-    if (review.lastReview >= weekAgo.toISOString().slice(0, 10)) reviewsCompleted++;
-    if (review.nextReview <= today) reviewsDue++;
+    if (review.lastReview >= weekAgoStr) reviewsCompleted++;
+    if (review.nextReview <= todayStr) reviewsDue++;
   }
 
   // 5. Wiki 页面总数
@@ -86,7 +87,7 @@ export async function generateWeeklyReport(
   settings: ParaWavesSettings,
   stats: WeeklyStats
 ): Promise<string> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr(new Date());
   const fileName = `每周回顾 ${stats.weekLabel}`;
   const filePath = normalizePath(`Daily/${fileName}.md`);
 
@@ -168,8 +169,8 @@ async function collectPendingTasks(
   const folder = app.vault.getAbstractFileByPath(settings.dailyPath);
   if (!folder || !(folder instanceof TFolder)) return [];
 
-  const weekAgoStr = weekAgo.toISOString().slice(0, 10);
-  const nowStr = now.toISOString().slice(0, 10);
+  const weekAgoStr = localDateStr(weekAgo);
+  const nowStr = localDateStr(now);
   const pending: { text: string; from: string }[] = [];
 
   for (const child of folder.children) {
@@ -194,4 +195,8 @@ function getWeekNumber(date: Date): number {
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

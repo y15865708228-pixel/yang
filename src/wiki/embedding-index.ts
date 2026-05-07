@@ -1,5 +1,5 @@
 import { App, Notice, normalizePath, TFile } from "obsidian";
-import type { ParaWavesSettings } from "../types";
+import type { ParaWavesSettings, PenseaPlugin } from "../types";
 import type { LLMProvider } from "../llm/provider";
 
 // 单条 embedding 记录
@@ -28,13 +28,13 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 // 从 plugin data 读取索引
-export async function getEmbeddingIndex(plugin: any): Promise<EmbeddingIndex> {
+export async function getEmbeddingIndex(plugin: PenseaPlugin): Promise<EmbeddingIndex> {
   const data = await plugin.loadData();
   return (data?.embeddingIndex ?? {}) as EmbeddingIndex;
 }
 
 // 保存索引到 plugin data
-async function saveEmbeddingIndex(plugin: any, index: EmbeddingIndex): Promise<void> {
+async function saveEmbeddingIndex(plugin: PenseaPlugin, index: EmbeddingIndex): Promise<void> {
   const data = await plugin.loadData();
   data.embeddingIndex = index;
   await plugin.saveData(data);
@@ -53,7 +53,7 @@ export async function buildEmbeddingIndex(
   app: App,
   settings: ParaWavesSettings,
   provider: LLMProvider,
-  plugin: any,
+  plugin: PenseaPlugin,
 ): Promise<number> {
   const indexPath = normalizePath(`${settings.wikiPath}/index.md`);
   const allWikiFiles = app.vault.getMarkdownFiles().filter(
@@ -92,7 +92,7 @@ export async function buildEmbeddingIndex(
       index[file.path] = {
         vector: vectors[j],
         title: String(title),
-        updated: new Date(file.stat.mtime).toISOString().slice(0, 10),
+        updated: localDateStr(new Date(file.stat.mtime)),
       };
     }
   }
@@ -107,7 +107,7 @@ export async function updateEmbeddingIndex(
   app: App,
   settings: ParaWavesSettings,
   provider: LLMProvider,
-  plugin: any,
+  plugin: PenseaPlugin,
 ): Promise<number> {
   const existingIndex = await getEmbeddingIndex(plugin);
   const indexPath = normalizePath(`${settings.wikiPath}/index.md`);
@@ -119,7 +119,7 @@ export async function updateEmbeddingIndex(
   const toUpdate: TFile[] = [];
   for (const file of allWikiFiles) {
     const existing = existingIndex[file.path];
-    const modifiedDate = new Date(file.stat.mtime).toISOString().slice(0, 10);
+    const modifiedDate = localDateStr(new Date(file.stat.mtime));
     if (!existing || existing.updated !== modifiedDate) {
       toUpdate.push(file);
     }
@@ -154,7 +154,7 @@ export async function updateEmbeddingIndex(
       existingIndex[file.path] = {
         vector: vectors[j],
         title: String(title),
-        updated: new Date(file.stat.mtime).toISOString().slice(0, 10),
+        updated: localDateStr(new Date(file.stat.mtime)),
       };
     }
   }
@@ -167,7 +167,7 @@ export async function updateEmbeddingIndex(
 export async function semanticSearch(
   query: string,
   provider: LLMProvider,
-  plugin: any,
+  plugin: PenseaPlugin,
   topK = 8,
 ): Promise<{ path: string; title: string; score: number }[]> {
   const index = await getEmbeddingIndex(plugin);
@@ -187,4 +187,8 @@ export async function semanticSearch(
 
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topK);
+}
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

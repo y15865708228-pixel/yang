@@ -235,7 +235,7 @@ export default class ParaWavesPlugin extends Plugin {
               return;
             }
             const source = view.file?.path ?? "";
-            const today = new Date().toISOString().slice(0, 10);
+            const today = localDateStr(new Date());
             const content = [
               "---",
               "type: 灵感卡片",
@@ -300,16 +300,21 @@ export default class ParaWavesPlugin extends Plugin {
       (this.app as any).commands.executeCommandById("pensea:open-sparks");
     });
 
-    // Wiki 文件变更时自动增量更新 embedding 索引
-    this.registerEvent(this.app.vault.on("create", async (file) => {
-      if (file.path.startsWith(this.settings.wikiPath) && this.llmProvider) {
+    // Wiki 文件变更时自动增量更新 embedding 索引（带节流）
+    let embeddingTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedEmbedding = () => {
+      if (embeddingTimer) clearTimeout(embeddingTimer);
+      embeddingTimer = setTimeout(async () => {
+        if (!this.llmProvider) return;
         try { await updateEmbeddingIndex(this.app, this.settings, this.llmProvider, this); } catch {}
-      }
+        embeddingTimer = null;
+      }, 10_000);
+    };
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      if (file.path.startsWith(this.settings.wikiPath) && this.llmProvider) debouncedEmbedding();
     }));
-    this.registerEvent(this.app.vault.on("modify", async (file) => {
-      if (file.path.startsWith(this.settings.wikiPath) && this.llmProvider) {
-        try { await updateEmbeddingIndex(this.app, this.settings, this.llmProvider, this); } catch {}
-      }
+    this.registerEvent(this.app.vault.on("modify", (file) => {
+      if (file.path.startsWith(this.settings.wikiPath) && this.llmProvider) debouncedEmbedding();
     }));
 
     // 点击日记中的前一天/后一天链接时，自动用模板填充空白的日记
@@ -338,18 +343,26 @@ export default class ParaWavesPlugin extends Plugin {
     }));
 
     // 自动智能命名：文件修改时，如果是默认名且有足够内容，自动生成标题
+    const autoTitledFiles = new Set<string>();
     if (this.llmProvider) {
-      this.registerEvent(this.app.vault.on("modify", async (file) => {
+      let autoTitleTimer: ReturnType<typeof setTimeout> | null = null;
+      this.registerEvent(this.app.vault.on("modify", (file) => {
         if (!(file instanceof TFile) || file.extension !== "md") return;
         if (!isGenericName(file.basename)) return;
-        // 延迟执行，等用户写完一段再触发
+        if (autoTitledFiles.has(file.path)) return;
         const f = file;
-        setTimeout(async () => {
+        if (autoTitleTimer) clearTimeout(autoTitleTimer);
+        autoTitleTimer = setTimeout(async () => {
+          autoTitleTimer = null;
+          if (autoTitledFiles.has(f.path)) return;
           try {
             const title = await autoTitleFile(this.app, f, this.llmProvider!);
-            if (title) new Notice(`已自动命名为：${title}`);
+            if (title) {
+              autoTitledFiles.add(f.path);
+              new Notice(`已自动命名为：${title}`);
+            }
           } catch {}
-        }, 3000);
+        }, 10_000);
       }));
     }
   }

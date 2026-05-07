@@ -148,13 +148,11 @@ class ClaudeProvider implements LLMProvider {
   constructor(private config: LLMConfig) {}
 
   async chat(messages: LLMMessage[], systemPrompt?: string, maxTokens?: number): Promise<string> {
+    const filtered = messages.filter((m) => m.role !== "system");
     const body: Record<string, unknown> = {
       model: this.config.model,
       max_tokens: maxTokens ?? this.config.maxTokens ?? 4096,
-      messages: messages.map((m) => ({
-        role: m.role === "system" ? "user" : m.role,
-        content: m.content,
-      })),
+      messages: filtered.map((m) => ({ role: m.role, content: m.content })),
     };
     if (systemPrompt) body.system = systemPrompt;
 
@@ -178,14 +176,12 @@ class ClaudeProvider implements LLMProvider {
   }
 
   async *stream(messages: LLMMessage[], systemPrompt?: string): AsyncGenerator<string, void, unknown> {
+    const filtered = messages.filter((m) => m.role !== "system");
     const body: Record<string, unknown> = {
       model: this.config.model,
       max_tokens: this.config.maxTokens ?? 4096,
       stream: true,
-      messages: messages.map((m) => ({
-        role: m.role === "system" ? "user" : m.role,
-        content: m.content,
-      })),
+      messages: filtered.map((m) => ({ role: m.role, content: m.content })),
     };
     if (systemPrompt) body.system = systemPrompt;
 
@@ -301,10 +297,63 @@ class GeminiProvider implements LLMProvider {
     return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
   }
 
-  async *stream(_messages: LLMMessage[], _systemPrompt?: string): AsyncGenerator<string, void, unknown> {
-    // Gemini streaming 需要 streamGenerateContent 端点，此处简化为非流式
-    const result = await this.chat(_messages, _systemPrompt);
-    yield result;
+  async *stream(messages: LLMMessage[], systemPrompt?: string): AsyncGenerator<string, void, unknown> {
+    const contents = messages.map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+
+    const body: Record<string, unknown> = {
+      contents,
+      generationConfig: {
+        maxOutputTokens: this.config.maxTokens ?? 4096,
+        temperature: this.config.temperature ?? 0.3,
+      },
+    };
+    if (systemPrompt) {
+      body.systemInstruction = { parts: [{ text: systemPrompt }] };
+    }
+
+    const url = `${this.config.baseURL}/v1beta/models/${this.config.model}:streamGenerateContent?alt=sse&key=${this.config.apiKey}`;
+
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`Gemini API 错误 (${resp.status}): ${err}`);
+    }
+
+    const reader = resp.body?.getReader();
+    if (!reader) throw new Error("无法读取响应流");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        try {
+          const parsed = JSON.parse(data);
+          const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) yield text;
+        } catch {
+          // skip malformed SSE
+        }
+      }
+    }
   }
 
   async embed(texts: string[]): Promise<number[][]> {
