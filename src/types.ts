@@ -121,7 +121,6 @@ export interface ParaWavesSettings {
   archivePath: string;
   sparksPath: string;
   dailyPath: string;
-  jdPath: string;
   templatesPath: string;
   tasksPath: string;
   wikiPath: string;
@@ -158,7 +157,6 @@ export const DEFAULT_SETTINGS: ParaWavesSettings = {
   archivePath: "4-Archive",
   sparksPath: "Sparks",
   dailyPath: "Daily",
-  jdPath: "1-Projects/京东活动",
   templatesPath: "Templates",
   tasksPath: "Tasks",
   wikiPath: "3-Resources/LLM-Wiki",
