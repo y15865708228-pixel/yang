@@ -194,6 +194,7 @@ export class ParaWavesSettingTab extends PluginSettingTab {
       { key: "resourcesPath", label: "Resources 路径" },
       { key: "archivePath", label: "Archive 路径" },
       { key: "sparksPath", label: "Sparks 路径" },
+      { key: "jdPath", label: "京东活动路径" },
       { key: "wikiPath", label: "LLM Wiki 路径" },
     ];
 

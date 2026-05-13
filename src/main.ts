@@ -203,6 +203,28 @@ export default class ParaWavesPlugin extends Plugin {
       },
     });
 
+    // 京东每日活动记录
+    this.addCommand({
+      id: "jd-daily",
+      name: "新建京东活动记录",
+      callback: async () => {
+        const ds = localDateStr(new Date());
+        const dir = this.settings.jdPath;
+        const filePath = normalizePath(`${dir}/${ds}.md`);
+        const existing = this.app.vault.getAbstractFileByPath(filePath);
+        if (existing && existing instanceof TFile) {
+          await this.app.workspace.getLeaf(false).openFile(existing);
+          return;
+        }
+        if (!this.app.vault.getAbstractFileByPath(dir)) {
+          await this.app.vault.createFolder(dir);
+        }
+        const template = await this.generateJdTemplate(ds);
+        const file = await this.app.vault.create(filePath, template);
+        await this.app.workspace.getLeaf(false).openFile(file);
+      },
+    });
+
     // 智能命名
     this.addCommand({
       id: "smart-rename",
@@ -404,6 +426,47 @@ export default class ParaWavesPlugin extends Plugin {
         this.llmProvider = null;
       }
     }
+  }
+
+  async generateJdTemplate(ds: string): Promise<string> {
+    const [year, month, day] = ds.split("-").map(Number);
+    const today = new Date(year, month - 1, day);
+
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yd = localDateStr(yesterday);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const td = localDateStr(tomorrow);
+
+    const dir = this.settings.jdPath;
+
+    return [
+      "---",
+      "type: 京东活动",
+      `date: ${ds}`,
+      "tags:",
+      "  - 京东",
+      "  - 活动",
+      `created: ${ds}`,
+      "---",
+      "",
+      `<< [[${dir}/${yd}]] | [[${dir}/${td}]] >>`,
+      "",
+      "## 活动要求",
+      "",
+      "| # | 活动名称 | 要求 | 截止时间 | 状态 |",
+      "|---|---------|------|---------|------|",
+      "| 1 |         |      |         | ⬜    |",
+      "",
+      "## 完成记录",
+      "",
+      "",
+      "## 备注",
+      "",
+      "",
+    ].join("\n");
   }
 
   async generateDailyTemplate(ds: string): Promise<string> {
