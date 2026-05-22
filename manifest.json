@@ -1,7 +1,7 @@
 {
 	"id": "pensea",
 	"name": "Pensea",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"minAppVersion": "1.1.0",
 	"description": "PARA-based knowledge management with idea flow, spaced repetition, and LLM-powered wiki.",
 	"author": "odo",
