@@ -27,8 +27,8 @@ export interface LLMConfig {
   temperature?: number;
   // Embedding 配置（可选，默认使用与 chat 相同的 provider）
   embeddingModel?: string;
-  embeddingBaseURL?: string;   // 仅 Claude 需要单独配置（Claude 无 embedding API）
-  embeddingApiKey?: string;    // 仅 Claude 需要单独配置
+  embeddingBaseURL?: string;
+  embeddingApiKey?: string;
 }
 
 // ─── Sparks ───
@@ -146,6 +146,7 @@ export const DEFAULT_SETTINGS: ParaWavesSettings = {
     baseURL: "https://api.openai.com/v1",
     apiKey: "",
     model: "gpt-4o-mini",
+    embeddingModel: "",
     maxTokens: 4096,
     temperature: 0.3,
   },

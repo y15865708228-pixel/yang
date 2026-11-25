@@ -1,170 +1,119 @@
 import { App, Notice, normalizePath, TFile, TFolder } from "obsidian";
 import type { ParaWavesSettings } from "../types";
 
-interface DayData {
-  date: string;
-  weekday: string;
-  tasks: { text: string; done: boolean }[];
-  record: string;
+function monthTotals(done: number, total: number, days: number, eol = "\n") {
+  const percent = total ? Math.round(100 * done / total) : 0;
+  return {
+    fields: [`total_tasks: ${total}`, `done_tasks: ${done}`, `pending_tasks: ${total - done}`].join(eol),
+    overview: [
+      `<!-- pensea:monthly ${done}/${total}/${days} -->`, "## 概览", "",
+      `- 完成 ${done}/${total} 项任务（${percent}%）`, `- 共 ${days} 天日记`,
+      total > done ? `- ${total - done} 项任务未完成` : "- 所有任务已完成",
+    ].join(eol),
+  };
+}
+
+function refreshMonthTotals(current: string, sources: Set<string>, done: number, total: number): string {
+  const header = current.match(/^---(\r?\n)[\s\S]*?\r?\n---(?=\r?\n|$)/);
+  const marker = /^<!-- pensea:monthly (\d+)\/(\d+)\/(\d+) -->\r?$/m.exec(current);
+  if (!header || !marker) return current; // 0.1.3 totals can include journals no longer in Daily.
+  for (const day of current.matchAll(/^<!-- pensea:daily-end (\d{4}-\d{2}-\d{2}) -->\r?$/gm)) {
+    if (!sources.has(day[1])) return current;
+  }
+  const eol = header[1];
+  const previous = monthTotals(Number(marker[1]), Number(marker[2]), Number(marker[3]), eol);
+  const body = current.slice(header[0].length);
+  if (!header[0].includes(eol + previous.fields + eol) || !body.includes(previous.overview + eol)) {
+    return current; // An author has edited the properties or the overview.
+  }
+  const next = monthTotals(done, total, sources.size, eol);
+  return header[0].replace(eol + previous.fields + eol, eol + next.fields + eol)
+    + body.replace(previous.overview + eol, next.overview + eol);
 }
 
 export async function archiveMonthlyDaily(
   app: App,
   settings: ParaWavesSettings
 ): Promise<void> {
+  const { vault } = app;
   const now = new Date();
-  // 上月
-  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const year = prevMonth.getFullYear();
-  const month = prevMonth.getMonth() + 1;
-  const monthStr = `${year}-${String(month).padStart(2, "0")}`;
-
-  // 扫描上月日记
-  const folder = app.vault.getAbstractFileByPath(settings.dailyPath);
-  if (!folder || !(folder instanceof TFolder)) {
-    new Notice("Daily 文件夹不存在");
+  const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+  const month = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, "0")}`;
+  const folder = vault.getAbstractFileByPath(normalizePath(settings.dailyPath));
+  if (!(folder instanceof TFolder)) {
+    new Notice("日记文件夹不存在");
     return;
   }
 
-  const dayFiles: TFile[] = [];
-  for (const child of folder.children) {
-    if (
-      child instanceof TFile &&
-      child.extension === "md" &&
-      child.name.startsWith(monthStr)
-    ) {
-      dayFiles.push(child);
-    }
-  }
-
-  if (dayFiles.length === 0) {
-    new Notice(`${monthStr} 没有找到日记`);
+  const dayNames = new Set(Array.from({ length: lastDay.getDate() }, (_, i) =>
+    `${month}-${String(i + 1).padStart(2, "0")}.md`));
+  const files = folder.children.filter((file): file is TFile => file instanceof TFile && dayNames.has(file.name));
+  if (!files.length) {
+    new Notice(`${month} 没有找到日记`);
     return;
   }
 
-  // 按日期排序
-  dayFiles.sort((a, b) => a.name.localeCompare(b.name));
+  // Keep the source at its original path, including its frontmatter, links and review history.
+  // Each distinct snapshot is append-only so a late entry can never replace an older one.
+  const days = await Promise.all(files.sort((a, b) => a.name.localeCompare(b.name)).map(async file => {
+    const content = await vault.read(file);
+    const section = [
+      `## ${file.basename}`,
+      `原日记：[[${file.path}]]`,
+      "",
+      content,
+      `<!-- pensea:daily-end ${file.basename} -->`,
+    ].join("\n");
+    const lines = content.split(/\r?\n/);
+    const completed = lines.filter(line => /^- \[[xX]\]\s+\S/.test(line)).length;
+    const pending = lines.flatMap(line => {
+      const task = line.match(/^- \[ \]\s+(\S.*)$/);
+      return task ? [`- [ ] ${task[1]}（[[${file.path}]]）`] : [];
+    });
+    return { section, completed, pending };
+  }));
 
-  // 解析每天数据
-  const days: DayData[] = [];
-  let totalTasks = 0;
-  let doneTasks = 0;
-  const pendingItems: { text: string; from: string }[] = [];
-  const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
-
-  for (const file of dayFiles) {
-    const content = await app.vault.cachedRead(file);
-    const dateName = file.name.replace(".md", "");
-    const d = new Date(dateName);
-    const dayData: DayData = {
-      date: dateName,
-      weekday: `周${weekdays[d.getDay()]}`,
-      tasks: [],
-      record: "",
-    };
-
-    // 提取任务
-    const sections = content.split("***");
-    for (const line of content.split("\n")) {
-      const match = line.match(/^- \[([ xX])\]\s*(.+)/);
-      if (match) {
-        const done = match[1] !== " ";
-        dayData.tasks.push({ text: match[2].trim(), done });
-        totalTasks++;
-        if (done) {
-          doneTasks++;
-        } else {
-          pendingItems.push({ text: match[2].trim(), from: dateName });
-        }
-      }
-    }
-
-    // 提取"记录"部分
-    const recordMatch = content.match(/## 记录\s*\n([\s\S]*?)(?=\*\*\*|##|$)/);
-    if (recordMatch) {
-      dayData.record = recordMatch[1].trim();
-    }
-
-    days.push(dayData);
-  }
-
-  const pct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
-
-  // 确保归档目录存在
   const archiveDir = normalizePath(`${settings.archivePath}/Daily`);
-  if (!app.vault.getAbstractFileByPath(archiveDir)) {
-    await app.vault.createFolder(archiveDir);
-  }
-
-  // 生成月度汇总
-  const summaryPath = normalizePath(`${archiveDir}/${monthStr}.md`);
-  const lines: string[] = [
-    "---",
-    "type: 月度汇总",
-    `month: ${monthStr}`,
-    `total_tasks: ${totalTasks}`,
-    `done_tasks: ${doneTasks}`,
-    `pending_tasks: ${pendingItems.length}`,
-    "tags:",
-    "  - 日记",
-    "  - 归档",
-    `created: ${now.toISOString().slice(0, 10)}`,
-    "---",
-    "",
-    `# ${monthStr} 月度汇总`,
-    "",
-    "## 概览",
-    "",
-    `- 完成 ${doneTasks}/${totalTasks} 项任务（${pct}%）`,
-    `- 共 ${days.length} 天日记`,
-    pendingItems.length > 0 ? `- ${pendingItems.length} 项任务未完成` : "- 所有任务已完成",
-    "",
-  ];
-
-  // 每日详情
-  for (const day of days) {
-    lines.push(`## ${day.date} ${day.weekday}`);
-    if (day.tasks.length > 0) {
-      lines.push("");
-      lines.push("**任务**");
-      for (const t of day.tasks) {
-        const mark = t.done ? "[x]" : "[ ]";
-        const suffix = t.done ? "" : "  ⬅ 未完成";
-        lines.push(`- ${mark} ${t.text}${suffix}`);
-      }
+  if (!vault.getAbstractFileByPath(archiveDir)) {
+    try {
+      await vault.createFolder(archiveDir);
+    } catch (error) {
+      if (!(vault.getAbstractFileByPath(archiveDir) instanceof TFolder)) throw error;
     }
-    if (day.record) {
-      lines.push("");
-      lines.push("**记录**");
-      lines.push(day.record);
+  }
+  const path = normalizePath(`${archiveDir}/${month}.md`);
+  const doneTasks = days.reduce((sum, day) => sum + day.completed, 0);
+  const totalTasks = days.reduce((sum, day) => sum + day.pending.length, doneTasks);
+  const sources = new Set(files.map(file => file.basename));
+  let report = vault.getAbstractFileByPath(path);
+  if (!report) {
+    const totals = monthTotals(doneTasks, totalTasks, sources.size);
+    try {
+      report = await vault.create(path, [
+        "---", "type: 月度汇总", `month: ${month}`, totals.fields, "tags: [日记, 归档]",
+        `created: ${now.toISOString().slice(0, 10)}`, "---",
+        "", `# ${month} 月度汇总`, "", totals.overview, "",
+      ].join("\n"));
+    } catch (error) {
+      report = vault.getAbstractFileByPath(path);
+      if (!(report instanceof TFile)) throw error;
     }
-    lines.push("");
-    lines.push("---");
-    lines.push("");
   }
+  if (!(report instanceof TFile)) throw new Error(`月报路径已被目录占用：${path}`);
 
-  // 遗留事项
-  if (pendingItems.length > 0) {
-    lines.push("## 遗留事项");
-    lines.push("");
-    for (const item of pendingItems) {
-      lines.push(`- [ ] ${item.text}（来自 ${item.from}）`);
-    }
-    lines.push("");
-  }
-
-  // 写入汇总
-  const existing = app.vault.getAbstractFileByPath(summaryPath);
-  if (existing && existing instanceof TFile) {
-    await app.vault.modify(existing, lines.join("\n"));
-  } else {
-    await app.vault.create(summaryPath, lines.join("\n"));
-  }
-
-  // 删除原始日记
-  for (const file of dayFiles) {
-    await app.vault.trash(file, true);
-  }
-
-  new Notice(`${monthStr} 已归档：${days.length} 天日记合并为月度汇总，${pendingItems.length} 项遗留`);
+  let added = 0;
+  await vault.process(report, current => {
+    const archived = current.replace(/\r\n/g, "\n");
+    const newDays = days.filter(day => !archived.includes(day.section.replace(/\r\n/g, "\n")));
+    added = newDays.length;
+    const updated = refreshMonthTotals(current, sources, doneTasks, totalTasks);
+    if (!added) return updated;
+    const sections = newDays.map(day => day.section);
+    const pending = newDays.flatMap(day => day.pending);
+    const done = newDays.reduce((sum, day) => sum + day.completed, 0);
+    sections.unshift(`本次收录 ${added} 天日记，已完成 ${done}/${done + pending.length} 项任务。`);
+    if (pending.length) sections.push(["### 本次归档的未完成任务", ...pending].join("\n"));
+    return updated + "\n\n" + sections.join("\n\n") + "\n";
+  });
+  new Notice(added ? `${month} 月报已补入 ${added} 天的日记原文` : `${month} 月报已是最新`);
 }

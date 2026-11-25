@@ -21,6 +21,42 @@ export function createProvider(config: LLMConfig): LLMProvider {
   }
 }
 
+export function sameApiOrigin(first: string, second: string): boolean {
+  try {
+    const a = new URL(first);
+    const b = new URL(second);
+    return (a.protocol === "http:" || a.protocol === "https:") && a.origin === b.origin;
+  } catch {
+    return false;
+  }
+}
+
+async function requestEmbeddings(config: LLMConfig, baseURL: string, texts: string[]): Promise<number[][]> {
+  if (!config.embeddingModel) throw new Error("请先在设置中选择 Embedding 模型");
+  const endpoint = new URL(baseURL);
+  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+    throw new Error("Embedding API 地址需要使用 HTTP 或 HTTPS");
+  }
+  const key = config.embeddingApiKey || (sameApiOrigin(baseURL, config.baseURL) ? config.apiKey : "");
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (key) {
+    headers.Authorization = `Bearer ${key}`;
+  } else if (!["localhost", "[::1]"].includes(endpoint.hostname) && !/^127\.\d+\.\d+\.\d+$/.test(endpoint.hostname)) {
+    throw new Error("请为该向量服务单独填写 Embedding API Key");
+  }
+  const resp = await requestUrl({
+    url: `${baseURL.replace(/\/+$/, "")}/embeddings`,
+    method: "POST",
+    headers,
+    body: JSON.stringify({ model: config.embeddingModel, input: texts }),
+    throw: false,
+  });
+  if (resp.status >= 400) {
+    throw new Error(`Embedding API 错误 (${resp.status}): ${resp.text}`);
+  }
+  return (resp.json.data ?? []).map((d: { embedding: number[] }) => d.embedding);
+}
+
 // ─── OpenAI 兼容适配器（覆盖 OpenAI / DeepSeek / Kimi / MiniMax / GLM / Ollama）───
 
 class OpenAICompatProvider implements LLMProvider {
@@ -118,33 +154,7 @@ class OpenAICompatProvider implements LLMProvider {
   }
 
   async embed(texts: string[]): Promise<number[][]> {
-    // 支持独立 Embedding 配置（Kimi/Claude 等不支持 Embedding 的 provider 需要配置）
-    const embBaseURL = this.config.embeddingBaseURL || this.config.baseURL;
-    const embModel = this.config.embeddingModel;
-    const embKey = this.config.embeddingApiKey || this.config.apiKey;
-
-    if (!embModel) {
-      throw new Error("请在设置中选择 Embedding 模型（推荐：GLM 用 embedding-3，Ollama 用 bge-m3，OpenAI 用 text-embedding-3-small）");
-    }
-
-    // 用 Obsidian 的 requestUrl 绕开 Chromium 的 CORS 限制（自建/Ollama 等 provider 无需再配 CORS）
-    const resp = await requestUrl({
-      url: `${embBaseURL}/embeddings`,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${embKey}`,
-      },
-      body: JSON.stringify({ model: embModel, input: texts }),
-      throw: false,
-    });
-
-    if (resp.status >= 400) {
-      throw new Error(`Embedding API 错误 (${resp.status}): ${typeof resp.text === "string" ? resp.text : JSON.stringify(resp.json)}`);
-    }
-
-    const data = resp.json;
-    return (data.data ?? []).map((d: any) => d.embedding as number[]);
+    return requestEmbeddings(this.config, this.config.embeddingBaseURL || this.config.baseURL, texts);
   }
 }
 
@@ -238,33 +248,11 @@ class ClaudeProvider implements LLMProvider {
   // Claude 本身不提供 embedding API，必须配置独立的 Embedding 服务
   async embed(texts: string[]): Promise<number[][]> {
     const embBaseURL = this.config.embeddingBaseURL;
-    const embModel = this.config.embeddingModel;
-    const embKey = this.config.embeddingApiKey || this.config.apiKey;
 
     if (!embBaseURL) {
       throw new Error("Claude 不支持 Embedding，请在设置中配置 Embedding API 地址（如 OpenAI、GLM、通义）");
     }
-    if (!embModel) {
-      throw new Error("请在设置中选择 Embedding 模型（推荐：GLM 用 embedding-3，Ollama 用 bge-m3）");
-    }
-
-    const resp = await requestUrl({
-      url: `${embBaseURL}/embeddings`,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${embKey}`,
-      },
-      body: JSON.stringify({ model: embModel, input: texts }),
-      throw: false,
-    });
-
-    if (resp.status >= 400) {
-      throw new Error(`Embedding API 错误 (${resp.status}): ${typeof resp.text === "string" ? resp.text : JSON.stringify(resp.json)}`);
-    }
-
-    const data = resp.json;
-    return (data.data ?? []).map((d: any) => d.embedding as number[]);
+    return requestEmbeddings(this.config, embBaseURL, texts);
   }
 }
 

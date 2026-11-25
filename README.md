@@ -44,7 +44,7 @@ AI 读取 Inbox，自动分类、生成摘要、写入知识库。扔进去就�
 
 ### 日记、周报、归档一条龙
 
-月历视图管理日记，周报自动汇总，月度归档合并旧日记并迁移未完成任务。
+从月历打开日记。生成周报会更新自动统计，保留手写回顾和下周计划。月度归档将上月日记的完整正文和未完成任务收进月报，原日记保留在原位置。重复归档时，新增或补写的日记会追加到月报，已有记录继续保留。
 
 ### 智能命名
 
@@ -208,9 +208,9 @@ A：DeepSeek 性价比最高，国内直连无需翻墙。Ollama 完全免费但
 
 **配置 AI 后，密钥和笔记会发到哪里？**
 
-Pensea 将密钥保存在当前仓库的插件设置中。每次 AI 请求都会向配置的 API 地址发送密钥。OpenAI 兼容服务通过 `Authorization` 请求头认证，Claude 聊天通过 `x-api-key` 请求头认证，Gemini 通过 URL 的 `key` 参数认证。
+Pensea 将密钥保存在当前仓库的插件设置中。OpenAI 兼容服务通过 `Authorization` 请求头认证，Claude 聊天通过 `x-api-key` 请求头认证，Gemini 通过 URL 的 `key` 参数认证。
 
-使用 OpenAI 兼容服务或 Claude 聊天时，可以单独指定向量服务的地址。若向量密钥留空，插件会将聊天密钥发到该地址。Gemini 向量请求使用聊天地址和密钥。Wiki 问答使用语义检索时，向量服务也会收到你的问题。
+使用 OpenAI 兼容服务或 Claude 聊天时，可以单独指定向量服务。向量地址的协议、主机和端口都与聊天地址相同时，向量密钥留空可复用聊天密钥。其他云端地址须填写该服务的专用密钥。对于不同源的本机回环地址（如 `http://localhost:11434`），留空会发送免认证请求。Gemini 向量请求使用聊天地址和密钥。Wiki 索引、问答和健康检查只选取配置的 Wiki 目录及其子目录内的笔记。使用语义检索时，向量服务也会收到你的问题。
 
 | 功能 | 发送的内容 |
 |------|------------|
@@ -290,7 +290,7 @@ Ask questions against your knowledge base — AI retrieves relevant pages and sy
 
 ### Journal, weekly reports, archival — handled
 
-Monthly calendar with lunar dates for daily notes. Auto-generated weekly summaries. Monthly archival merges old journals and migrates unfinished tasks.
+Open daily notes from the calendar. Regenerating a weekly report updates the statistics and keeps your reflections and plans. Monthly archival saves the full journal entries and pending tasks in a monthly report. The original notes stay at their existing paths. Run it again after adding or editing an entry to append the new version while keeping earlier snapshots.
 
 ### Smart naming
 
@@ -356,9 +356,9 @@ A: DeepSeek for best value. Ollama for free local use. OpenAI for best quality.
 
 **Where do my key and notes go when I use AI?**
 
-Pensea stores keys in the plugin settings in your vault. Each AI request sends a key to the configured API address. OpenAI-compatible services use the `Authorization` header, Claude chat uses the `x-api-key` header, and Gemini uses the `key` query parameter in the URL.
+Pensea stores keys in the plugin settings in your vault. OpenAI-compatible services use the `Authorization` header, Claude chat uses the `x-api-key` header, and Gemini uses the `key` query parameter in the URL.
 
-With an OpenAI-compatible or Claude chat provider, you can set a separate embedding endpoint. Leaving its key blank sends your chat key to that endpoint. Gemini uses the chat endpoint and key for embeddings. When Wiki Q&A uses semantic search, the embedding service also receives your question.
+With an OpenAI-compatible or Claude chat provider, you can set a separate embedding endpoint. Leaving its key blank reuses your chat key only when the scheme, host and port match. Other cloud endpoints require their own key. A loopback endpoint on a different origin, such as `http://localhost:11434`, can receive requests without authentication. Gemini uses the chat endpoint and key for embeddings. Wiki indexing, Q&A and health checks select notes from the configured Wiki folder and its subfolders. When Wiki Q&A uses semantic search, the embedding service also receives your question.
 
 | Feature | Content sent |
 |---------|--------------|

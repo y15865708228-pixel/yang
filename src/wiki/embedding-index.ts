@@ -1,6 +1,7 @@
 import { App, Notice, normalizePath, TFile } from "obsidian";
 import type { ParaWavesSettings, PenseaPlugin } from "../types";
 import type { LLMProvider } from "../llm/provider";
+import { isWikiFile, WikiReadBatch } from "./wiki-path";
 
 // 单条 embedding 记录
 export interface EmbeddingEntry {
@@ -34,8 +35,8 @@ export async function getEmbeddingIndex(plugin: PenseaPlugin): Promise<Embedding
 }
 
 // 获取单个 wiki 页面的文本摘要（用于 embedding）
-async function getPageText(app: App, file: TFile): Promise<string> {
-  const content = await app.vault.cachedRead(file);
+async function getPageText(source: WikiReadBatch, file: TFile): Promise<string> {
+  const content = await source.read(file);
   // 去掉 frontmatter，取前 800 字
   const body = content.replace(/^---[\s\S]*?---\n*/, "");
   return body.substring(0, 800).trim();
@@ -48,12 +49,17 @@ export async function buildEmbeddingIndex(
   provider: LLMProvider,
   plugin: PenseaPlugin,
 ): Promise<number> {
+  const source = new WikiReadBatch(app, settings);
   const indexPath = normalizePath(`${settings.wikiPath}/index.md`);
   const allWikiFiles = app.vault.getMarkdownFiles().filter(
-    (f) => f.path.startsWith(settings.wikiPath) && f.path !== indexPath
+    (f) => isWikiFile(f.path, settings.wikiPath) && f.path !== indexPath
   );
 
   if (allWikiFiles.length === 0) {
+    await plugin.updatePluginData(data => {
+      source.assertCurrent();
+      data.embeddingIndex = {};
+    });
     new Notice("Wiki 中没有页面可以索引");
     return 0;
   }
@@ -70,12 +76,14 @@ export async function buildEmbeddingIndex(
     // 收集文本
     const texts: string[] = [];
     for (const file of batch) {
-      const text = await getPageText(app, file);
+      const text = await getPageText(source, file);
       texts.push(text || file.basename);
     }
 
     // 调用 embedding API
+    source.assertCurrent(batch);
     const vectors = await provider.embed(texts);
+    source.assertCurrent(batch);
 
     // 存入索引
     for (let j = 0; j < batch.length; j++) {
@@ -90,7 +98,10 @@ export async function buildEmbeddingIndex(
     }
   }
 
-  await plugin.updatePluginData(data => { data.embeddingIndex = index; });
+  await plugin.updatePluginData(data => {
+    source.assertCurrent();
+    data.embeddingIndex = index;
+  });
   new Notice(`索引构建完成：${allWikiFiles.length} 页`);
   return allWikiFiles.length;
 }
@@ -102,10 +113,11 @@ export async function updateEmbeddingIndex(
   provider: LLMProvider,
   plugin: PenseaPlugin,
 ): Promise<number> {
+  const source = new WikiReadBatch(app, settings);
   const existingIndex = await getEmbeddingIndex(plugin);
   const indexPath = normalizePath(`${settings.wikiPath}/index.md`);
   const allWikiFiles = app.vault.getMarkdownFiles().filter(
-    (f) => f.path.startsWith(settings.wikiPath) && f.path !== indexPath
+    (f) => isWikiFile(f.path, settings.wikiPath) && f.path !== indexPath
   );
 
   // 找出需要更新的页面
@@ -131,10 +143,12 @@ export async function updateEmbeddingIndex(
     const batch = toUpdate.slice(i, i + batchSize);
     const texts: string[] = [];
     for (const file of batch) {
-      const text = await getPageText(app, file);
+      const text = await getPageText(source, file);
       texts.push(text || file.basename);
     }
+    source.assertCurrent(batch);
     const vectors = await provider.embed(texts);
+    source.assertCurrent(batch);
     for (let j = 0; j < batch.length; j++) {
       const file = batch[j];
       const cache = app.metadataCache.getFileCache(file);
@@ -148,8 +162,14 @@ export async function updateEmbeddingIndex(
   }
 
   await plugin.updatePluginData(data => {
+    source.assertCurrent();
     const index = (data.embeddingIndex ?? {}) as EmbeddingIndex;
-    for (const path of removed) delete index[path];
+    for (const path of Object.keys(index)) {
+      if (path === indexPath || !isWikiFile(path, settings.wikiPath)
+          || !(app.vault.getAbstractFileByPath(path) instanceof TFile)) {
+        delete index[path];
+      }
+    }
     data.embeddingIndex = Object.assign(index, updates);
   });
   return toUpdate.length;
@@ -163,7 +183,7 @@ export async function semanticSearch(
   topK = 8,
 ): Promise<{ path: string; title: string; score: number }[]> {
   const index = await getEmbeddingIndex(plugin);
-  const entries = Object.entries(index);
+  const entries = Object.entries(index).filter(([path]) => isWikiFile(path, plugin.settings.wikiPath));
 
   if (entries.length === 0) return [];
 

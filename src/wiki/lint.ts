@@ -1,6 +1,7 @@
 import { App, Notice, normalizePath, TFile } from "obsidian";
 import type { ParaWavesSettings, LintIssue } from "../types";
 import type { LLMProvider } from "../llm/provider";
+import { isWikiFile, WikiReadBatch } from "./wiki-path";
 
 const LINT_SYSTEM = `你是知识库的体检助手。检查以下 wiki 页面集合，找出问题。
 
@@ -29,9 +30,10 @@ export async function lintWiki(
   settings: ParaWavesSettings,
   provider: LLMProvider
 ): Promise<LintIssue[]> {
+  const source = new WikiReadBatch(app, settings);
   // 1. 收集所有 wiki 页面内容
   const wikiFiles = app.vault.getMarkdownFiles().filter((f) =>
-    f.path.startsWith(settings.wikiPath)
+    isWikiFile(f.path, settings.wikiPath)
   );
 
   if (wikiFiles.length === 0) {
@@ -50,11 +52,12 @@ export async function lintWiki(
     const pagesContent: string[] = [];
 
     for (const file of batch) {
-      const content = await app.vault.cachedRead(file);
+      const content = await source.read(file);
       pagesContent.push(`### ${file.path}\n${content.substring(0, 800)}`);
     }
 
     // 3. 调用 LLM 检查
+    source.assertCurrent(batch);
     const reply = await provider.chat(
       [
         {
@@ -78,6 +81,7 @@ export async function lintWiki(
   }
 
   // 5. 生成报告
+  source.assertCurrent();
   if (allIssues.length > 0) {
     await saveLintReport(app, settings, allIssues);
     new Notice(`Lint 完成：发现 ${allIssues.length} 个问题`);

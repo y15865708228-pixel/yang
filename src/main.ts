@@ -14,6 +14,7 @@ import { WikiChatModal } from "./wiki/wiki-chat-modal";
 import { lintWiki } from "./wiki/lint";
 import { collectWeeklyStats, generateWeeklyReport } from "./weekly/weekly-report";
 import { buildEmbeddingIndex, updateEmbeddingIndex } from "./wiki/embedding-index";
+import { isWikiFile } from "./wiki/wiki-path";
 import { formatNote, continueWriting, polishText, expandText, condenseText, rewriteStyle, AVAILABLE_STYLES } from "./editor/writing-assist";
 import { StylePickerModal } from "./editor/style-picker-modal";
 import { archiveMonthlyDaily } from "./daily/monthly-archiver";
@@ -174,7 +175,11 @@ export default class ParaWavesPlugin extends Plugin {
           return;
         }
         if (!(view instanceof MarkdownView)) return;
-        await formatNote(this.app, editor, view, this.llmProvider);
+        try {
+          await formatNote(this.app, editor, view, this.llmProvider);
+        } catch (e) {
+          new Notice(`排版失败：${e instanceof Error ? e.message : String(e)}`);
+        }
       },
     });
 
@@ -188,7 +193,11 @@ export default class ParaWavesPlugin extends Plugin {
           return;
         }
         if (!(view instanceof MarkdownView)) return;
-        await continueWriting(this.app, editor, view, this.llmProvider);
+        try {
+          await continueWriting(this.app, editor, view, this.llmProvider);
+        } catch (e) {
+          new Notice(`续写失败：${e instanceof Error ? e.message : String(e)}`);
+        }
       },
     });
 
@@ -264,25 +273,25 @@ export default class ParaWavesPlugin extends Plugin {
             menu.addSeparator();
             menu.addItem((item) => {
               item.setTitle("✨ 润色").onClick(async () => {
-                try { new Notice("正在润色..."); await polishText(editor, this.llmProvider!); new Notice("润色完成"); }
+                try { new Notice("正在润色..."); await polishText(editor, view, this.llmProvider!); new Notice("润色完成"); }
                 catch (e) { new Notice(`润色失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
               });
             });
             menu.addItem((item) => {
               item.setTitle("📝 扩写").onClick(async () => {
-                try { new Notice("正在扩写..."); await expandText(editor, this.llmProvider!); new Notice("扩写完成"); }
+                try { new Notice("正在扩写..."); await expandText(editor, view, this.llmProvider!); new Notice("扩写完成"); }
                 catch (e) { new Notice(`扩写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
               });
             });
             menu.addItem((item) => {
               item.setTitle("✂️ 缩写").onClick(async () => {
-                try { new Notice("正在缩写..."); await condenseText(editor, this.llmProvider!); new Notice("缩写完成"); }
+                try { new Notice("正在缩写..."); await condenseText(editor, view, this.llmProvider!); new Notice("缩写完成"); }
                 catch (e) { new Notice(`缩写失败: ${(e instanceof Error ? e.message : String(e)).substring(0, 80)}`); }
               });
             });
             menu.addItem((item) => {
               item.setTitle("🎨 改写风格").onClick(async () => {
-                new StylePickerModal(this.app, this.llmProvider!, editor).open();
+                new StylePickerModal(this.app, this.llmProvider!, editor, view).open();
               });
             });
           }
@@ -323,10 +332,10 @@ export default class ParaWavesPlugin extends Plugin {
       }, 10_000);
     };
     this.registerEvent(this.app.vault.on("create", (file) => {
-      if (file.path.startsWith(this.settings.wikiPath) && this.llmProvider) debouncedEmbedding();
+      if (this.llmProvider && isWikiFile(file.path, this.settings.wikiPath)) debouncedEmbedding();
     }));
     this.registerEvent(this.app.vault.on("modify", (file) => {
-      if (file.path.startsWith(this.settings.wikiPath) && this.llmProvider) debouncedEmbedding();
+      if (this.llmProvider && isWikiFile(file.path, this.settings.wikiPath)) debouncedEmbedding();
     }));
 
     // 点击日记中的前一天/后一天链接时，自动用模板填充空白的日记
@@ -390,6 +399,11 @@ export default class ParaWavesPlugin extends Plugin {
       Object.keys(DEFAULT_SETTINGS).filter(key => key in data).map(key => [key, data[key]])
     );
     this.settings = { ...DEFAULT_SETTINGS, ...savedSettings, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm } };
+    // 0.1.3 applied these defaults at request time, leaving the model absent from data.json.
+    if (data.llm?.apiKey && data.llm.embeddingModel == null) {
+      this.settings.llm.embeddingModel = this.settings.llm.provider === "gemini"
+        ? "text-embedding-004" : "text-embedding-3-small";
+    }
   }
 
   updatePluginData(update: (data: Record<string, unknown>) => void): Promise<void> {

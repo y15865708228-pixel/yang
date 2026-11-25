@@ -2,6 +2,7 @@ import { App, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type ParaWavesPlugin from "./main";
 import { DEFAULT_SETTINGS } from "./types";
 import type { ParaWavesSettings } from "./types";
+import { sameApiOrigin } from "./llm/provider";
 
 const PROVIDERS = [
   { name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini" },
@@ -46,6 +47,21 @@ export class ParaWavesSettingTab extends PluginSettingTab {
     // ─── LLM 配置 ───
     containerEl.createEl("h3", { text: "LLM 提供商" });
 
+    const config = this.plugin.settings.llm;
+    let chatKeyText: TextComponent | undefined;
+    let keyTextRef: TextComponent | undefined;
+    const setChatAddress = (address: string) => {
+      if (address !== config.baseURL && !sameApiOrigin(config.baseURL, address)) {
+        config.apiKey = "";
+        chatKeyText?.setValue("");
+        if (!config.embeddingBaseURL) {
+          config.embeddingApiKey = undefined;
+          keyTextRef?.setValue("");
+        }
+      }
+      config.baseURL = address;
+    };
+
     new Setting(containerEl)
       .setName("提供商预设")
       .setDesc("选择预设自动填充 baseURL 和模型")
@@ -57,7 +73,7 @@ export class ParaWavesSettingTab extends PluginSettingTab {
         if (currentIdx >= 0) dd.setValue(String(currentIdx));
         dd.onChange(async (val) => {
           const preset = PROVIDERS[Number(val)];
-          this.plugin.settings.llm.baseURL = preset.baseURL;
+          setChatAddress(preset.baseURL);
           this.plugin.settings.llm.model = preset.model;
           if (preset.name === "Claude (Anthropic)") {
             this.plugin.settings.llm.provider = "claude";
@@ -73,13 +89,13 @@ export class ParaWavesSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Base URL")
-      .setDesc("API 端点地址")
+      .setDesc("更改协议、主机或端口后，请填写新服务的密钥")
       .addText((text) =>
         text
           .setPlaceholder("https://api.openai.com/v1")
           .setValue(this.plugin.settings.llm.baseURL)
           .onChange(async (value) => {
-            this.plugin.settings.llm.baseURL = value;
+            setChatAddress(value);
             await this.plugin.saveSettings();
           })
       );
@@ -88,6 +104,7 @@ export class ParaWavesSettingTab extends PluginSettingTab {
       .setName("API Key")
       .setDesc("你的 API 密钥")
       .addText((text) => {
+        chatKeyText = text;
         text.inputEl.type = "password";
         text
           .setPlaceholder("sk-...")
@@ -138,7 +155,15 @@ export class ParaWavesSettingTab extends PluginSettingTab {
 
     let modelTextRef: TextComponent | undefined;
     let urlTextRef: TextComponent | undefined;
-    let keyTextRef: TextComponent | undefined;
+    const setEmbeddingAddress = (address: string) => {
+      const oldAddress = config.embeddingBaseURL || config.baseURL;
+      const newAddress = address || config.baseURL;
+      if (oldAddress !== newAddress && !sameApiOrigin(oldAddress, newAddress)) {
+        config.embeddingApiKey = undefined;
+        keyTextRef?.setValue("");
+      }
+      config.embeddingBaseURL = address || undefined;
+    };
 
     embModelSetting.addDropdown((dd) => {
       dd.addOption("", "— 选择常用模型 —");
@@ -150,17 +175,10 @@ export class ParaWavesSettingTab extends PluginSettingTab {
       dd.onChange(async (value) => {
         if (value === "__custom__") return;
         const selected = (EMBEDDING_MODELS as readonly { id: string; baseURL: string }[]).find((m) => m.id === value);
-        const oldBaseURL = this.plugin.settings.llm.embeddingBaseURL ?? "";
-        const newBaseURL = selected?.baseURL ?? "";
-        this.plugin.settings.llm.embeddingModel = value || undefined;
+        this.plugin.settings.llm.embeddingModel = value;
         if (selected) {
-          this.plugin.settings.llm.embeddingBaseURL = selected.baseURL || undefined;
+          setEmbeddingAddress(selected.baseURL);
           urlTextRef?.setValue(selected.baseURL);
-          // 切到不同 provider 时清空 Key，提醒用户重填；同 provider 切换（如 OpenAI small → large）不清
-          if (newBaseURL !== oldBaseURL) {
-            this.plugin.settings.llm.embeddingApiKey = undefined;
-            keyTextRef?.setValue("");
-          }
         }
         await this.plugin.saveSettings();
         modelTextRef?.setValue(value);
@@ -173,28 +191,28 @@ export class ParaWavesSettingTab extends PluginSettingTab {
         .setPlaceholder("模型名（选自定义时填写）")
         .setValue(this.plugin.settings.llm.embeddingModel ?? "")
         .onChange(async (value) => {
-          this.plugin.settings.llm.embeddingModel = value || undefined;
+          this.plugin.settings.llm.embeddingModel = value;
           await this.plugin.saveSettings();
         });
     });
 
     new Setting(containerEl)
       .setName("Embedding API 地址")
-      .setDesc("选上方常用模型会自动填充。留空则使用与 Chat 相同的地址（Gemini 走 Chat 地址，无需填）")
+      .setDesc("OpenAI 兼容服务可留空以使用 Chat 地址；Claude 需要独立的向量地址。Gemini 使用 Chat 地址。")
       .addText((urlText) => {
         urlTextRef = urlText;
         urlText
           .setPlaceholder("https://api.openai.com/v1")
           .setValue(this.plugin.settings.llm.embeddingBaseURL ?? "")
           .onChange(async (value) => {
-            this.plugin.settings.llm.embeddingBaseURL = value || undefined;
+            setEmbeddingAddress(value);
             await this.plugin.saveSettings();
           });
       });
 
     new Setting(containerEl)
       .setName("Embedding API Key")
-      .setDesc("切换到不同 provider 的模型会自动清空，需重新填写。留空则使用与 Chat 相同的 Key")
+      .setDesc("协议、主机和端口均与 Chat 相同时，留空可复用聊天密钥。其他云端地址需填写专用密钥，本机回环地址可免认证。")
       .addText((keyText) => {
         keyTextRef = keyText;
         keyText.inputEl.type = "password";
@@ -336,7 +354,7 @@ export class ParaWavesSettingTab extends PluginSettingTab {
       .setName("恢复默认设置")
       .addButton((btn) =>
         btn.setButtonText("重置").onClick(async () => {
-          this.plugin.settings = { ...DEFAULT_SETTINGS, llm: { ...DEFAULT_SETTINGS.llm } };
+          Object.assign(this.plugin.settings, DEFAULT_SETTINGS, { llm: { ...DEFAULT_SETTINGS.llm } });
           await this.plugin.saveSettings();
           this.display();
         })

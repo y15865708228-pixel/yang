@@ -1,6 +1,28 @@
-import { App, Editor, MarkdownView, Notice, TFile } from "obsidian";
-import type { ParaWavesSettings } from "../types";
+import { App, Editor, EditorPosition, MarkdownView } from "obsidian";
 import type { LLMProvider } from "../llm/provider";
+
+function captureNote(view: MarkdownView, editor: Editor) {
+  const file = view.file;
+  if (!file) throw new Error("没有打开的文件");
+  const content = editor.getValue();
+
+  function checkBeforeWrite() {
+    const workspace = view.app.workspace;
+    const activeNote = workspace.getActiveViewOfType(MarkdownView);
+    const isOpen = workspace.getLeavesOfType("markdown").some(leaf => leaf.view === view);
+    if (!isOpen || view.file !== file || view.editor !== editor || (activeNote && activeNote !== view)) {
+      throw new Error("笔记已切换或关闭，本次结果未写入。请打开原笔记后重试。");
+    }
+    if (editor.getValue() !== content) {
+      throw new Error("等待 AI 期间笔记已更新，本次结果未写入。请根据最新内容重试。");
+    }
+  }
+  return { content, checkBeforeWrite };
+}
+
+function samePosition(a: EditorPosition, b: EditorPosition): boolean {
+  return a.line === b.line && a.ch === b.ch;
+}
 
 // ─── 整理笔记 ───
 
@@ -22,10 +44,7 @@ export async function formatNote(
   view: MarkdownView,
   provider: LLMProvider
 ): Promise<string> {
-  const file = view.file;
-  if (!file) throw new Error("没有打开的文件");
-
-  const content = editor.getValue();
+  const { content, checkBeforeWrite } = captureNote(view, editor);
   if (!content.trim()) throw new Error("笔记是空的");
 
   const result = await provider.chat(
@@ -43,6 +62,7 @@ export async function formatNote(
 
   if (result.trim() === content.trim()) return "unchanged";
 
+  checkBeforeWrite();
   editor.setValue(result);
   return "ok";
 }
@@ -72,10 +92,7 @@ export async function continueWriting(
   view: MarkdownView,
   provider: LLMProvider
 ): Promise<void> {
-  const file = view.file;
-  if (!file) throw new Error("没有打开的文件");
-
-  const content = editor.getValue();
+  const { content, checkBeforeWrite } = captureNote(view, editor);
   if (!content.trim()) throw new Error("笔记是空的，先写点什么吧");
 
   // 获取光标位置之后的内容作为上下文
@@ -93,6 +110,10 @@ export async function continueWriting(
 
   // 在光标位置插入建议
   const suggestion = `\n\n> [!tip] 💡 写作建议\n> \n${result.split("\n").map((l: string) => `> ${l}`).join("\n")}\n\n`;
+  checkBeforeWrite();
+  if (!samePosition(editor.getCursor(), cursor)) {
+    throw new Error("光标位置已改变，本次建议未插入。请在需要续写的位置重试。");
+  }
   editor.replaceRange(suggestion, cursor);
 }
 
@@ -101,11 +122,15 @@ export async function continueWriting(
 /** 对选中文字调用 LLM，替换选中内容 */
 async function transformSelection(
   editor: Editor,
+  view: MarkdownView,
   provider: LLMProvider,
   action: string,
   systemPrompt: string
 ): Promise<void> {
-  const selected = editor.getSelection();
+  const { checkBeforeWrite } = captureNote(view, editor);
+  const from = editor.getCursor("from");
+  const to = editor.getCursor("to");
+  const selected = editor.getRange(from, to);
   if (!selected.trim()) throw new Error("请先选中文字");
 
   const result = await provider.chat(
@@ -114,7 +139,11 @@ async function transformSelection(
   );
 
   if (!result || !result.trim()) throw new Error("LLM 返回为空");
-  editor.replaceSelection(result);
+  checkBeforeWrite();
+  if (!samePosition(from, editor.getCursor("from")) || !samePosition(to, editor.getCursor("to"))) {
+    throw new Error("选区已改变，本次结果未写入。请重新选中文字后重试。");
+  }
+  editor.replaceRange(result, from, to);
 }
 
 const POLISH_SYSTEM = `你是文字润色助手。优化用户给的文字，让它更流畅、更清晰、更有表达力。
@@ -154,22 +183,22 @@ const STYLE_MAP: Record<string, string> = {
 要求：结构清晰、用词精准、步骤明确、适当使用代码示例和列表。直接输出，不要解释。`,
 };
 
-export async function polishText(editor: Editor, provider: LLMProvider): Promise<void> {
-  await transformSelection(editor, provider, "请润色以下文字", POLISH_SYSTEM);
+export async function polishText(editor: Editor, view: MarkdownView, provider: LLMProvider): Promise<void> {
+  await transformSelection(editor, view, provider, "请润色以下文字", POLISH_SYSTEM);
 }
 
-export async function expandText(editor: Editor, provider: LLMProvider): Promise<void> {
-  await transformSelection(editor, provider, "请扩写以下文字", EXPAND_SYSTEM);
+export async function expandText(editor: Editor, view: MarkdownView, provider: LLMProvider): Promise<void> {
+  await transformSelection(editor, view, provider, "请扩写以下文字", EXPAND_SYSTEM);
 }
 
-export async function condenseText(editor: Editor, provider: LLMProvider): Promise<void> {
-  await transformSelection(editor, provider, "请缩写以下文字", CONDENSE_SYSTEM);
+export async function condenseText(editor: Editor, view: MarkdownView, provider: LLMProvider): Promise<void> {
+  await transformSelection(editor, view, provider, "请缩写以下文字", CONDENSE_SYSTEM);
 }
 
-export async function rewriteStyle(editor: Editor, provider: LLMProvider, style: string): Promise<void> {
+export async function rewriteStyle(editor: Editor, view: MarkdownView, provider: LLMProvider, style: string): Promise<void> {
   const systemPrompt = STYLE_MAP[style];
   if (!systemPrompt) throw new Error(`未知风格: ${style}`);
-  await transformSelection(editor, provider, `请改写为${style}风格`, systemPrompt);
+  await transformSelection(editor, view, provider, `请改写为${style}风格`, systemPrompt);
 }
 
 export const AVAILABLE_STYLES = Object.keys(STYLE_MAP);

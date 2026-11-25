@@ -1,7 +1,8 @@
 import { App, Notice, normalizePath, TFile } from "obsidian";
-import type { ParaWavesSettings } from "../types";
+import type { ParaWavesSettings, PenseaPlugin } from "../types";
 import type { LLMProvider } from "../llm/provider";
-import { semanticSearch, getEmbeddingIndex } from "./embedding-index";
+import { semanticSearch } from "./embedding-index";
+import { isWikiFile, WikiReadBatch } from "./wiki-path";
 
 const QUERY_SYSTEM = `你是 Pensea 知识库的问答助手。请基于提供的 wiki 内容回答问题。
 规则：
@@ -15,14 +16,15 @@ export async function queryWiki(
   settings: ParaWavesSettings,
   provider: LLMProvider,
   question: string,
-  plugin?: any,
+  plugin?: PenseaPlugin,
 ): Promise<string> {
+  const source = new WikiReadBatch(app, settings);
   // 1. 读取 index.md
   const indexPath = normalizePath(`${settings.wikiPath}/index.md`);
   const indexFile = app.vault.getAbstractFileByPath(indexPath);
   let indexContent = "";
-  if (indexFile && indexFile instanceof TFile) {
-    indexContent = await app.vault.read(indexFile);
+  if (indexFile instanceof TFile && isWikiFile(indexFile.path, settings.wikiPath)) {
+    indexContent = await source.read(indexFile);
   }
 
   // 2. 选择搜索策略：优先 embedding 语义搜索，回退关键词匹配
@@ -32,27 +34,16 @@ export async function queryWiki(
   let usedSemantic = false;
   if (plugin) {
     try {
-      const embIndex = await getEmbeddingIndex(plugin);
-      const entryCount = Object.keys(embIndex).length;
-
-      if (entryCount > 0) {
-        const results = await semanticSearch(question, provider, plugin, 8);
-        const threshold = 0.3; // 最低相似度阈值
-
-        for (const result of results) {
-          if (result.score < threshold) continue;
-          const file = app.vault.getAbstractFileByPath(result.path);
-          if (file && file instanceof TFile) {
-            const content = await app.vault.cachedRead(file);
-            relevantPages.push({
-              title: result.title,
-              path: result.path,
-              content: content.substring(0, 600),
-            });
-          }
+      const results = await semanticSearch(question, provider, plugin, 8);
+      for (const result of results) {
+        if (result.score < 0.3 || !isWikiFile(result.path, settings.wikiPath)) continue;
+        const file = app.vault.getAbstractFileByPath(result.path);
+        if (file instanceof TFile) {
+          const content = await source.read(file);
+          relevantPages.push({ title: result.title, path: file.path, content: content.substring(0, 600) });
         }
-        usedSemantic = relevantPages.length > 0;
       }
+      usedSemantic = relevantPages.length > 0;
     } catch (e) {
       console.warn("ParaWaves semantic search failed, falling back to keywords:", e);
     }
@@ -60,10 +51,11 @@ export async function queryWiki(
 
   // 回退：关键词匹配
   if (!usedSemantic) {
-    relevantPages = await keywordSearch(app, settings, question, indexPath);
+    relevantPages = await keywordSearch(app, settings, question, indexPath, source);
   }
 
   // 3. 构建上下文
+  source.assertCurrent();
   const context = relevantPages
     .map((p) => `## ${p.title}\n${p.content}`)
     .join("\n\n");
@@ -90,6 +82,7 @@ async function keywordSearch(
   settings: ParaWavesSettings,
   question: string,
   indexPath: string,
+  source: WikiReadBatch,
 ): Promise<{ title: string; path: string; content: string }[]> {
   const keywords = question.split(/\s+/).filter((w) => w.length > 1);
   const wikiFolder = app.vault.getAbstractFileByPath(normalizePath(settings.wikiPath));
@@ -98,7 +91,7 @@ async function keywordSearch(
   if (!wikiFolder) return pages;
 
   const allWikiFiles = app.vault.getMarkdownFiles().filter(
-    (f) => f.path.startsWith(settings.wikiPath) && f.path !== indexPath
+    (f) => isWikiFile(f.path, settings.wikiPath) && f.path !== indexPath
   );
 
   for (const file of allWikiFiles) {
@@ -112,7 +105,7 @@ async function keywordSearch(
     const matched = keywords.some((k) => searchText.includes(k.toLowerCase()));
 
     if (matched || allWikiFiles.length <= 20) {
-      const content = await app.vault.cachedRead(file);
+      const content = await source.read(file);
       pages.push({
         title,
         path: file.path,

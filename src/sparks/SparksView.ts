@@ -3,6 +3,7 @@ import type { Spark, SparkStatus, ParaWavesSettings, PenseaPlugin } from "../typ
 import { scanSparks, isStale, updateSparkStatus } from "./spark-engine";
 import { processInbox } from "../wiki/ingest";
 import { lintWiki } from "../wiki/lint";
+import { isWikiFile } from "../wiki/wiki-path";
 import { collectWeeklyStats, generateWeeklyReport } from "../weekly/weekly-report";
 import { getSRSData, buildReviewQueue } from "../srs/review-scheduler";
 import { ReviewModal } from "../srs/review-modal";
@@ -77,7 +78,7 @@ export class SparksView extends ItemView {
       this.dueReviews = queue.length;
     } catch { this.dueReviews = 0; }
     this.wikiTotal = this.app.vault.getMarkdownFiles().filter(
-      (f) => f.path.startsWith(this.settings.wikiPath)
+      (f) => isWikiFile(f.path, this.settings.wikiPath)
     ).length;
     this.render();
   }
