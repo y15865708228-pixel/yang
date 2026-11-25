@@ -96,15 +96,6 @@ export function getSRSData(plugin: PenseaPlugin): Promise<Record<string, ReviewD
   return plugin.loadData().then((d) => (d?.[SRS_DATA_KEY] as Record<string, ReviewData>) ?? {});
 }
 
-export async function saveSRSData(
-  plugin: PenseaPlugin,
-  data: Record<string, ReviewData>
-): Promise<void> {
-  const all = await plugin.loadData();
-  all[SRS_DATA_KEY] = data;
-  await plugin.saveData(all);
-}
-
 // ─── 构建复习队列 ───
 
 export async function buildReviewQueue(
@@ -197,17 +188,17 @@ export async function applyReview(
   filePath: string,
   quality: number
 ): Promise<void> {
-  const data = await getSRSData(plugin);
-  const review = data[cardId] ?? {
-    filePath,
-    easeFactor: 2.5,
-    interval: 1,
-    repetitions: 0,
-    nextReview: localDateStr(new Date()),
-    lastReview: "",
-  };
-
-  const updated = sm2(review, quality as 1 | 2 | 3 | 4);
-  data[cardId] = updated;
-  await saveSRSData(plugin, data);
+  await plugin.updatePluginData(data => {
+    const reviews = (data[SRS_DATA_KEY] ?? {}) as Record<string, ReviewData>;
+    const review = reviews[cardId] ?? {
+      filePath,
+      easeFactor: 2.5,
+      interval: 1,
+      repetitions: 0,
+      nextReview: localDateStr(new Date()),
+      lastReview: "",
+    };
+    reviews[cardId] = sm2(review, quality as 1 | 2 | 3 | 4);
+    data[SRS_DATA_KEY] = reviews;
+  });
 }

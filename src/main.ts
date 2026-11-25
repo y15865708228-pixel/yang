@@ -23,6 +23,7 @@ import { autoTitleFile, isGenericName } from "./editor/auto-title";
 export default class ParaWavesPlugin extends Plugin {
   settings: ParaWavesSettings = { ...DEFAULT_SETTINGS };
   llmProvider: LLMProvider | null = null;
+  private dataWrite: Promise<void> = Promise.resolve();
 
   async onload() {
     await this.loadSettings();
@@ -30,7 +31,7 @@ export default class ParaWavesPlugin extends Plugin {
     registerPWIcons((id: string, svg: string) => addIcon(id, svg));
 
     // ─── 注册 Sparks 视图 ───
-    this.registerView(SPARKS_VIEW_TYPE, (leaf: WorkspaceLeaf) => new SparksView(leaf, this.settings, this));
+    this.registerView(SPARKS_VIEW_TYPE, (leaf: WorkspaceLeaf) => new SparksView(leaf, this));
 
     // ─── 命令注册 ───
 
@@ -67,16 +68,13 @@ export default class ParaWavesPlugin extends Plugin {
     this.addCommand({
       id: "open-sparks",
       name: "打开 Sparks 看板",
-      callback: () => {
-        const existing = this.app.workspace.getLeavesOfType(SPARKS_VIEW_TYPE);
-        if (existing.length > 0) {
-          this.app.workspace.revealLeaf(existing[0]);
-        } else {
-          this.app.workspace.getRightLeaf(false)?.setViewState({
-            type: SPARKS_VIEW_TYPE,
-            active: true,
-          });
-        }
+      callback: async () => {
+        const workspace = this.app.workspace;
+        const [existing] = workspace.getLeavesOfType(SPARKS_VIEW_TYPE);
+        const leaf = existing ?? workspace.getRightLeaf(false);
+        if (!leaf) return;
+        if (!existing) await leaf.setViewState({ type: SPARKS_VIEW_TYPE, active: true });
+        await workspace.revealLeaf(leaf);
       },
     });
 
@@ -368,9 +366,9 @@ export default class ParaWavesPlugin extends Plugin {
         if (autoTitleTimer) clearTimeout(autoTitleTimer);
         autoTitleTimer = setTimeout(async () => {
           autoTitleTimer = null;
-          if (autoTitledFiles.has(f.path)) return;
+          if (!this.llmProvider || autoTitledFiles.has(f.path)) return;
           try {
-            const title = await autoTitleFile(this.app, f, this.llmProvider!);
+            const title = await autoTitleFile(this.app, f, this.llmProvider);
             if (title) {
               autoTitledFiles.add(f.path);
               new Notice(`已自动命名为：${title}`);
@@ -387,22 +385,38 @@ export default class ParaWavesPlugin extends Plugin {
   }
 
   async loadSettings() {
-    const data = await this.loadData();
-    this.settings = { ...DEFAULT_SETTINGS, ...data };
+    const data = (await this.loadData()) ?? {};
+    const savedSettings = Object.fromEntries(
+      Object.keys(DEFAULT_SETTINGS).filter(key => key in data).map(key => [key, data[key]])
+    );
+    this.settings = { ...DEFAULT_SETTINGS, ...savedSettings, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm } };
   }
 
-  async saveSettings() {
-    await this.saveData(this.settings);
-    this.initLLM();
+  updatePluginData(update: (data: Record<string, unknown>) => void): Promise<void> {
+    const write = this.dataWrite.then(async () => {
+      const data = (await this.loadData()) ?? {};
+      update(data);
+      await this.saveData(data);
+    });
+    // 调用方收到本次错误，后续写入仍可继续。
+    this.dataWrite = write.catch(() => {});
+    return write;
+  }
+
+  async saveSettings(changes?: Partial<ParaWavesSettings>) {
+    if (!changes) this.initLLM();
+    await this.updatePluginData(data => Object.assign(data, changes ?? this.settings));
+    if (changes) {
+      Object.assign(this.settings, changes);
+      if (changes.llm) this.initLLM();
+    }
   }
 
   private initLLM() {
-    if (this.settings.llm.apiKey) {
-      try {
-        this.llmProvider = createProvider(this.settings.llm);
-      } catch {
-        this.llmProvider = null;
-      }
+    try {
+      this.llmProvider = this.settings.llm.apiKey ? createProvider(this.settings.llm) : null;
+    } catch {
+      this.llmProvider = null;
     }
   }
 

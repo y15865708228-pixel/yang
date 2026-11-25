@@ -5,9 +5,9 @@
 export interface PenseaPlugin {
   settings: ParaWavesSettings;
   llmProvider: import("./llm/provider").LLMProvider | null;
-  loadData(): Promise<Record<string, unknown>>;
-  saveData(data: Record<string, unknown>): Promise<void>;
-  saveSettings(): Promise<void>;
+  loadData(): Promise<Record<string, unknown> | null>;
+  updatePluginData(update: (data: Record<string, unknown>) => void): Promise<void>;
+  saveSettings(changes?: Partial<ParaWavesSettings>): Promise<void>;
   generateDailyTemplate(ds: string): Promise<string>;
 }
 

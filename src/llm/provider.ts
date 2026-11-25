@@ -1,3 +1,4 @@
+import { requestUrl } from "obsidian";
 import type { LLMConfig, LLMMessage } from "../types";
 
 // LLM Provider 接口
@@ -119,27 +120,30 @@ class OpenAICompatProvider implements LLMProvider {
   async embed(texts: string[]): Promise<number[][]> {
     // 支持独立 Embedding 配置（Kimi/Claude 等不支持 Embedding 的 provider 需要配置）
     const embBaseURL = this.config.embeddingBaseURL || this.config.baseURL;
-    const embModel = this.config.embeddingModel ?? "text-embedding-3-small";
+    const embModel = this.config.embeddingModel;
     const embKey = this.config.embeddingApiKey || this.config.apiKey;
 
-    const resp = await fetch(`${embBaseURL}/embeddings`, {
+    if (!embModel) {
+      throw new Error("请在设置中选择 Embedding 模型（推荐：GLM 用 embedding-3，Ollama 用 bge-m3，OpenAI 用 text-embedding-3-small）");
+    }
+
+    // 用 Obsidian 的 requestUrl 绕开 Chromium 的 CORS 限制（自建/Ollama 等 provider 无需再配 CORS）
+    const resp = await requestUrl({
+      url: `${embBaseURL}/embeddings`,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${embKey}`,
       },
-      body: JSON.stringify({
-        model: embModel,
-        input: texts,
-      }),
+      body: JSON.stringify({ model: embModel, input: texts }),
+      throw: false,
     });
 
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(`Embedding API 错误 (${resp.status}): ${err}`);
+    if (resp.status >= 400) {
+      throw new Error(`Embedding API 错误 (${resp.status}): ${typeof resp.text === "string" ? resp.text : JSON.stringify(resp.json)}`);
     }
 
-    const data = await resp.json();
+    const data = resp.json;
     return (data.data ?? []).map((d: any) => d.embedding as number[]);
   }
 }
@@ -234,28 +238,32 @@ class ClaudeProvider implements LLMProvider {
   // Claude 本身不提供 embedding API，必须配置独立的 Embedding 服务
   async embed(texts: string[]): Promise<number[][]> {
     const embBaseURL = this.config.embeddingBaseURL;
-    const embModel = this.config.embeddingModel ?? "text-embedding-3-small";
+    const embModel = this.config.embeddingModel;
     const embKey = this.config.embeddingApiKey || this.config.apiKey;
 
     if (!embBaseURL) {
-      throw new Error("Claude 不支持 Embedding，请在设置中配置 Embedding API 地址（如 OpenAI、DeepSeek）");
+      throw new Error("Claude 不支持 Embedding，请在设置中配置 Embedding API 地址（如 OpenAI、GLM、通义）");
+    }
+    if (!embModel) {
+      throw new Error("请在设置中选择 Embedding 模型（推荐：GLM 用 embedding-3，Ollama 用 bge-m3）");
     }
 
-    const resp = await fetch(`${embBaseURL}/embeddings`, {
+    const resp = await requestUrl({
+      url: `${embBaseURL}/embeddings`,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${embKey}`,
       },
       body: JSON.stringify({ model: embModel, input: texts }),
+      throw: false,
     });
 
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(`Embedding API 错误 (${resp.status}): ${err}`);
+    if (resp.status >= 400) {
+      throw new Error(`Embedding API 错误 (${resp.status}): ${typeof resp.text === "string" ? resp.text : JSON.stringify(resp.json)}`);
     }
 
-    const data = await resp.json();
+    const data = resp.json;
     return (data.data ?? []).map((d: any) => d.embedding as number[]);
   }
 }
@@ -357,25 +365,31 @@ class GeminiProvider implements LLMProvider {
   }
 
   async embed(texts: string[]): Promise<number[][]> {
-    const url = `${this.config.baseURL}/v1beta/models/${this.config.embeddingModel ?? "text-embedding-004"}:batchEmbedContents?key=${this.config.apiKey}`;
+    const embModel = this.config.embeddingModel;
+    if (!embModel) {
+      throw new Error("请在设置中选择 Gemini Embedding 模型（如 text-embedding-004）");
+    }
+
+    const url = `${this.config.baseURL}/v1beta/models/${embModel}:batchEmbedContents?key=${this.config.apiKey}`;
 
     const requests = texts.map((text) => ({
-      model: `models/${this.config.embeddingModel ?? "text-embedding-004"}`,
+      model: `models/${embModel}`,
       content: { parts: [{ text }] },
     }));
 
-    const resp = await fetch(url, {
+    const resp = await requestUrl({
+      url,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requests }),
+      throw: false,
     });
 
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(`Gemini Embedding API 错误 (${resp.status}): ${err}`);
+    if (resp.status >= 400) {
+      throw new Error(`Gemini Embedding API 错误 (${resp.status}): ${typeof resp.text === "string" ? resp.text : JSON.stringify(resp.json)}`);
     }
 
-    const data = await resp.json();
+    const data = resp.json;
     return (data.embeddings ?? []).map((e: any) => e.values as number[]);
   }
 }

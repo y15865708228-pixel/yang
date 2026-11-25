@@ -33,13 +33,6 @@ export async function getEmbeddingIndex(plugin: PenseaPlugin): Promise<Embedding
   return (data?.embeddingIndex ?? {}) as EmbeddingIndex;
 }
 
-// 保存索引到 plugin data
-async function saveEmbeddingIndex(plugin: PenseaPlugin, index: EmbeddingIndex): Promise<void> {
-  const data = await plugin.loadData();
-  data.embeddingIndex = index;
-  await plugin.saveData(data);
-}
-
 // 获取单个 wiki 页面的文本摘要（用于 embedding）
 async function getPageText(app: App, file: TFile): Promise<string> {
   const content = await app.vault.cachedRead(file);
@@ -97,7 +90,7 @@ export async function buildEmbeddingIndex(
     }
   }
 
-  await saveEmbeddingIndex(plugin, index);
+  await plugin.updatePluginData(data => { data.embeddingIndex = index; });
   new Notice(`索引构建完成：${allWikiFiles.length} 页`);
   return allWikiFiles.length;
 }
@@ -127,17 +120,12 @@ export async function updateEmbeddingIndex(
 
   // 删除已不存在的页面
   const wikiPaths = new Set(allWikiFiles.map((f) => f.path));
-  let removed = 0;
-  for (const path of Object.keys(existingIndex)) {
-    if (!wikiPaths.has(path)) {
-      delete existingIndex[path];
-      removed++;
-    }
-  }
+  const removed = Object.keys(existingIndex).filter(path => !wikiPaths.has(path));
 
-  if (toUpdate.length === 0 && removed === 0) return 0;
+  if (toUpdate.length === 0 && removed.length === 0) return 0;
 
   // 分批 embedding
+  const updates: EmbeddingIndex = {};
   const batchSize = 10;
   for (let i = 0; i < toUpdate.length; i += batchSize) {
     const batch = toUpdate.slice(i, i + batchSize);
@@ -151,7 +139,7 @@ export async function updateEmbeddingIndex(
       const file = batch[j];
       const cache = app.metadataCache.getFileCache(file);
       const title = cache?.frontmatter?.title ?? file.basename;
-      existingIndex[file.path] = {
+      updates[file.path] = {
         vector: vectors[j],
         title: String(title),
         updated: localDateStr(new Date(file.stat.mtime)),
@@ -159,7 +147,11 @@ export async function updateEmbeddingIndex(
     }
   }
 
-  await saveEmbeddingIndex(plugin, existingIndex);
+  await plugin.updatePluginData(data => {
+    const index = (data.embeddingIndex ?? {}) as EmbeddingIndex;
+    for (const path of removed) delete index[path];
+    data.embeddingIndex = Object.assign(index, updates);
+  });
   return toUpdate.length;
 }
 

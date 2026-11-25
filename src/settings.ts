@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type ParaWavesPlugin from "./main";
 import { DEFAULT_SETTINGS } from "./types";
 import type { ParaWavesSettings } from "./types";
@@ -8,11 +8,25 @@ const PROVIDERS = [
   { name: "DeepSeek", baseURL: "https://api.deepseek.com/v1", model: "deepseek-chat" },
   { name: "Kimi (Moonshot)", baseURL: "https://api.moonshot.cn/v1", model: "moonshot-v1-auto" },
   { name: "MiniMax", baseURL: "https://api.minimax.chat/v1", model: "MiniMax-Text-01" },
-  { name: "GLM (Zhipu)", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-5.1" },
+  { name: "GLM Coding Plan (套餐)", baseURL: "https://open.bigmodel.cn/api/coding/paas/v4", model: "glm-5.2" },
+  { name: "GLM (Zhipu 按量计费)", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash" },
   { name: "Ollama (本地)", baseURL: "http://localhost:11434/v1", model: "qwen2.5:7b" },
   { name: "Claude (Anthropic)", baseURL: "https://api.anthropic.com", model: "claude-sonnet-4-20250514" },
   { name: "Gemini (Google)", baseURL: "https://generativelanguage.googleapis.com", model: "gemini-2.0-flash" },
   { name: "自定义", baseURL: "", model: "" },
+] as const;
+
+const EMBEDDING_MODELS = [
+  { id: "embedding-3", label: "智谱 GLM · embedding-3 (2048d) — 推荐国产", baseURL: "https://open.bigmodel.cn/api/paas/v4" },
+  { id: "text-embedding-v3", label: "通义千问 · text-embedding-v3 (1024d) — 阿里 DashScope", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+  { id: "text-embedding-v1", label: "Kimi (Moonshot) · text-embedding-v1 (1024d)", baseURL: "https://api.moonshot.cn/v1" },
+  { id: "embo-01", label: "MiniMax · embo-01 (1024d)", baseURL: "https://api.minimax.chat/v1" },
+  { id: "text-embedding-3-small", label: "OpenAI · text-embedding-3-small (1536d) — 国际通用", baseURL: "https://api.openai.com/v1" },
+  { id: "text-embedding-3-large", label: "OpenAI · text-embedding-3-large (3072d) — 贵但准", baseURL: "https://api.openai.com/v1" },
+  { id: "text-embedding-004", label: "Gemini · text-embedding-004 (768d) — Google", baseURL: "" },
+  { id: "bge-m3", label: "Ollama · bge-m3 (1024d) — 中文最强、本地免费", baseURL: "http://localhost:11434/v1" },
+  { id: "bge-large-zh-v1.5", label: "Ollama · bge-large-zh-v1.5 (1024d) — 中文专用", baseURL: "http://localhost:11434/v1" },
+  { id: "nomic-embed-text", label: "Ollama · nomic-embed-text (768d) — 轻量英文", baseURL: "http://localhost:11434/v1" },
 ] as const;
 
 export class ParaWavesSettingTab extends PluginSettingTab {
@@ -114,42 +128,77 @@ export class ParaWavesSettingTab extends PluginSettingTab {
     // ─── Embedding 配置 ───
     containerEl.createEl("h3", { text: "Embedding 模型（语义搜索）" });
     containerEl.createEl("p", {
-      text: "Kimi、Claude 不提供 Embedding API，需填写下方独立地址（如 OpenAI、DeepSeek）。GLM 原生支持 Embedding，无需额外配置。",
+      text: "推荐：智谱 GLM 用户选 embedding-3，Ollama 本地选 bge-m3。Kimi / Claude 不提供 Embedding API，需在下方填独立地址和 Key（可指向 OpenAI / GLM / 通义 等任意 OpenAI 兼容服务）。",
       cls: "setting-item-description",
     });
 
-    new Setting(containerEl)
+    const embModelSetting = new Setting(containerEl)
       .setName("Embedding 模型")
-      .setDesc("用于语义搜索的 embedding 模型名称")
-      .addText((text) =>
-        text
-          .setPlaceholder("text-embedding-3-small")
-          .setValue(this.plugin.settings.llm.embeddingModel ?? "")
-          .onChange(async (value) => {
-            this.plugin.settings.llm.embeddingModel = value || undefined;
-            await this.plugin.saveSettings();
-          })
-      );
+      .setDesc("下拉选常用模型会自动填充下方 API 地址；选「自定义」后可在右侧文本框手动填写任意模型名");
+
+    let modelTextRef: TextComponent | undefined;
+    let urlTextRef: TextComponent | undefined;
+    let keyTextRef: TextComponent | undefined;
+
+    embModelSetting.addDropdown((dd) => {
+      dd.addOption("", "— 选择常用模型 —");
+      EMBEDDING_MODELS.forEach((m) => dd.addOption(m.id, m.label));
+      dd.addOption("__custom__", "自定义…");
+      const current = this.plugin.settings.llm.embeddingModel ?? "";
+      const isKnown = (EMBEDDING_MODELS as readonly { id: string }[]).some((m) => m.id === current);
+      dd.setValue(current === "" ? "" : isKnown ? current : "__custom__");
+      dd.onChange(async (value) => {
+        if (value === "__custom__") return;
+        const selected = (EMBEDDING_MODELS as readonly { id: string; baseURL: string }[]).find((m) => m.id === value);
+        const oldBaseURL = this.plugin.settings.llm.embeddingBaseURL ?? "";
+        const newBaseURL = selected?.baseURL ?? "";
+        this.plugin.settings.llm.embeddingModel = value || undefined;
+        if (selected) {
+          this.plugin.settings.llm.embeddingBaseURL = selected.baseURL || undefined;
+          urlTextRef?.setValue(selected.baseURL);
+          // 切到不同 provider 时清空 Key，提醒用户重填；同 provider 切换（如 OpenAI small → large）不清
+          if (newBaseURL !== oldBaseURL) {
+            this.plugin.settings.llm.embeddingApiKey = undefined;
+            keyTextRef?.setValue("");
+          }
+        }
+        await this.plugin.saveSettings();
+        modelTextRef?.setValue(value);
+      });
+    });
+
+    embModelSetting.addText((modelText) => {
+      modelTextRef = modelText;
+      modelText
+        .setPlaceholder("模型名（选自定义时填写）")
+        .setValue(this.plugin.settings.llm.embeddingModel ?? "")
+        .onChange(async (value) => {
+          this.plugin.settings.llm.embeddingModel = value || undefined;
+          await this.plugin.saveSettings();
+        });
+    });
 
     new Setting(containerEl)
       .setName("Embedding API 地址")
-      .setDesc("留空则使用与 Chat 相同的 API。Claude 用户需填写支持 embedding 的 API 地址（如 OpenAI/DeepSeek）")
-      .addText((text) =>
-        text
+      .setDesc("选上方常用模型会自动填充。留空则使用与 Chat 相同的地址（Gemini 走 Chat 地址，无需填）")
+      .addText((urlText) => {
+        urlTextRef = urlText;
+        urlText
           .setPlaceholder("https://api.openai.com/v1")
           .setValue(this.plugin.settings.llm.embeddingBaseURL ?? "")
           .onChange(async (value) => {
             this.plugin.settings.llm.embeddingBaseURL = value || undefined;
             await this.plugin.saveSettings();
-          })
-      );
+          });
+      });
 
     new Setting(containerEl)
       .setName("Embedding API Key")
-      .setDesc("留空则使用与 Chat 相同的 Key")
-      .addText((text) => {
-        text.inputEl.type = "password";
-        text
+      .setDesc("切换到不同 provider 的模型会自动清空，需重新填写。留空则使用与 Chat 相同的 Key")
+      .addText((keyText) => {
+        keyTextRef = keyText;
+        keyText.inputEl.type = "password";
+        keyText
           .setPlaceholder("sk-...")
           .setValue(this.plugin.settings.llm.embeddingApiKey ?? "")
           .onChange(async (value) => {
@@ -158,10 +207,38 @@ export class ParaWavesSettingTab extends PluginSettingTab {
           });
       });
 
-    // ─── 测试连接 ───
+    // ─── 测试 Embedding 连接 ───
     new Setting(containerEl)
-      .setName("测试 LLM 连接")
-      .setDesc("发送一条测试消息验证 API 配置")
+      .setName("测试 Embedding 连接")
+      .setDesc("发送一段测试文本，验证 Embedding 模型、地址、Key 是否可用")
+      .addButton((btn) =>
+        btn.setButtonText("测试").onClick(async () => {
+          btn.setButtonText("测试中...");
+          btn.setDisabled(true);
+          try {
+            const provider = this.plugin.llmProvider;
+            if (!provider) throw new Error("请先在顶部配置 Chat API Key");
+            const vectors = await provider.embed(["测试中文向量化"]);
+            if (vectors.length > 0 && vectors[0].length > 0) {
+              btn.setButtonText(`成功: ${vectors[0].length} 维向量`);
+            } else {
+              btn.setButtonText("失败: 返回为空");
+            }
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            btn.setButtonText("失败: " + msg.substring(0, 30));
+          }
+          setTimeout(() => {
+            btn.setButtonText("测试");
+            btn.setDisabled(false);
+          }, 3000);
+        })
+      );
+
+    // ─── 测试 Chat 连接 ───
+    new Setting(containerEl)
+      .setName("测试 Chat 连接")
+      .setDesc("发送一条测试消息验证 Chat API 配置（不影响 Embedding）")
       .addButton((btn) =>
         btn.setButtonText("测试").onClick(async () => {
           btn.setButtonText("测试中...");
@@ -259,7 +336,7 @@ export class ParaWavesSettingTab extends PluginSettingTab {
       .setName("恢复默认设置")
       .addButton((btn) =>
         btn.setButtonText("重置").onClick(async () => {
-          this.plugin.settings = { ...DEFAULT_SETTINGS };
+          this.plugin.settings = { ...DEFAULT_SETTINGS, llm: { ...DEFAULT_SETTINGS.llm } };
           await this.plugin.saveSettings();
           this.display();
         })

@@ -1,9 +1,10 @@
 {
   "name": "pensea",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Pensea (思海) — PARA + 灵感流转 + 间隔重复 + LLM 知识库",
   "main": "main.js",
   "scripts": {
+    "test": "node --test tests/plugin-data.test.cjs",
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "version": "node version-bump.mjs && git add manifest.json versions.json"

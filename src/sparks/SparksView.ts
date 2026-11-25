@@ -25,7 +25,6 @@ const STATUS_COLUMNS: { status: SparkStatus; icon: string; label: string }[] = [
 type StatusType = "running" | "done" | "error";
 
 export class SparksView extends ItemView {
-  private settings: ParaWavesSettings;
   private plugin: PenseaPlugin;
   private sparks: Spark[] = [];
   private inboxCount = 0;
@@ -37,11 +36,12 @@ export class SparksView extends ItemView {
   private statusType: StatusType = "running";
   private busy = false;
 
-  constructor(leaf: WorkspaceLeaf, settings: ParaWavesSettings, plugin: PenseaPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: PenseaPlugin) {
     super(leaf);
-    this.settings = settings;
     this.plugin = plugin;
   }
+
+  private get settings(): ParaWavesSettings { return this.plugin.settings; }
 
   getViewType(): string { return SPARKS_VIEW_TYPE; }
   getDisplayText(): string { return "Pensea"; }
@@ -150,8 +150,8 @@ export class SparksView extends ItemView {
       for (const spark of staleSparks) {
         const row = alertSection.createDiv({ cls: "pw-stale-item" });
         const stale = isStale(spark, this.settings);
-        const dot = `<span class="pw-stale-dot ${stale === "hatch" ? "pw-stale-red" : "pw-stale-orange"}"></span>`;
-        row.innerHTML = `${dot} ${spark.title || spark.filePath.split("/").pop()} · ${spark.staleDays}天`;
+        row.createSpan({ cls: `pw-stale-dot ${stale === "hatch" ? "pw-stale-red" : "pw-stale-orange"}` });
+        row.appendText(` ${spark.title || spark.filePath.split("/").pop()} · ${spark.staleDays}天`);
         row.addEventListener("click", () =>
           this.app.workspace.openLinkText(spark.filePath, "", false)
         );
@@ -178,8 +178,8 @@ export class SparksView extends ItemView {
 
     const steps = [
       { icon: "pw-format", title: "初始化 Vault", desc: "创建 PARA 目录和模板", done: this.checkVaultInitialized() },
-      { icon: "pw-spark", title: "创建第一条灵感", desc: "在上方输入框输入想法，回车创建", done: this.sparks.length > 0 },
-      { icon: "pw-cards", title: "配置 LLM（可选）", desc: "设置 → Pensea → 填入 API Key", done: !!this.provider },
+      { icon: "pw-spark", title: "创建第一条灵感", desc: "在下方 Sparks 输入框写下想法，回车创建", done: this.sparks.length > 0 },
+      { icon: "pw-cards", title: "配置 LLM（可选）", desc: "设置 → Pensea → 填入 API Key", done: !!this.provider, optional: true },
     ];
 
     for (const step of steps) {
@@ -200,12 +200,17 @@ export class SparksView extends ItemView {
       }
     }
 
-    const allDone = steps.every((s) => s.done);
-    if (allDone) {
+    if (steps.every((step) => step.optional || step.done)) {
       const closeBtn = guide.createEl("button", { cls: "pw-onboarding-close", text: "开始使用 ✓" });
       closeBtn.addEventListener("click", async () => {
-        this.settings.onboardingCompleted = true;
-        await this.plugin.saveSettings();
+        closeBtn.disabled = true;
+        try {
+          await this.plugin.saveSettings({ onboardingCompleted: true });
+        } catch {
+          closeBtn.disabled = false;
+          new Notice("引导状态保存失败，请重试。");
+          return;
+        }
         this.render();
       });
     }

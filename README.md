@@ -58,19 +58,25 @@ AI 读取 Inbox，自动分类、生成摘要、写入知识库。扔进去就�
 
 ## 安装
 
+### 从 Obsidian 社区插件安装
+
+在 Obsidian 中打开「设置 → 第三方插件」。首次使用第三方插件时，按提示关闭受限模式。点击「浏览」，搜索 **Pensea**，然后安装并启用。[Pensea 社区插件页](https://community.obsidian.md/plugins/pensea)
+
 ### 手动安装
 
-1. 从 [Releases](../../releases) 下载最新版 `pensea.zip`
-2. 解压，得到 `main.js`、`manifest.json`、`styles.css`、`versions.json` 四个文件
-3. 在你的 Obsidian Vault 中找到 `.obsidian/plugins/` 目录
-4. 新建文件夹 `pensea`，把四个文件放进去
-5. 重启 Obsidian → 设置 → 社区插件 → 找到 **Pensea** → 开启
+1. 打开[最新版发布页](https://github.com/y15865708228-pixel/yang/releases/latest)，从同一版本的 **Assets** 分别下载 `main.js`、`manifest.json` 和 `styles.css`。
+2. 在仓库中创建 `.obsidian/plugins/pensea/`，把这三个文件直接放入该目录。
+3. 重启 Obsidian，在「设置 → 第三方插件」中启用 **Pensea**。
 
 ### BRAT 安装
 
 1. 安装 [BRAT](https://github.com/TfTHacker/obsidian42-brat) 插件
 2. BRAT 设置 → Add Beta Plugin → 输入仓库地址 `https://github.com/y15865708228-pixel/yang`
 3. 安装完成后启用 Pensea
+
+### 可选的 Pensea 主题
+
+插件可以搭配你当前的主题使用。如果喜欢配套外观，在「设置 → 外观 → 主题 → 管理」中搜索 **Pensea**。[社区主题页](https://community.obsidian.md/themes/pensea)
 
 ---
 
@@ -102,7 +108,7 @@ Pensea: 初始化 Vault 结构
 
 ### 第二步：打开看板
 
-点击左侧边栏的 ✨ 图标，或命令面板执行 `Pensea: 打开 Sparks 看板`。
+在命令面板执行 `Pensea: 打开 Sparks 看板`。在 Sparks 输入框写下第一条灵感并按回车，然后点击欢迎卡上的「开始使用 ✓」。这一步可以离线完成。
 
 看板包含：
 - **统计卡片**：Inbox 数量、灵感总数、待复习卡片、Wiki 页面数
@@ -116,8 +122,8 @@ Pensea: 初始化 Vault 结构
 设置 → Pensea → LLM 配置：
 
 1. **选择提供商**：下拉菜单选择，自动填充地址和模型
-2. **填入 API Key**：密钥仅保存在本地，不会上传
-3. **点击测试**：确认连接成功
+2. **填入 API Key**，确认 API 地址指向你要使用的服务。
+3. **点击测试**，插件会向该地址发送密钥和一条固定的测试消息。
 
 支持的提供商：
 
@@ -200,11 +206,22 @@ A：可以。看板、日历、复习、周报、归档全部离线可用。AI �
 **Q：推荐用哪个 AI 提供商？**
 A：DeepSeek 性价比最高，国内直连无需翻墙。Ollama 完全免费但需要本地部署。OpenAI 效果最好但需翻墙。
 
-**Q：API Key 安全吗？**
-A：密钥仅保存在你本地的 Obsidian 插件配置中，不会发送到任何第三方服务器。
+**配置 AI 后，密钥和笔记会发到哪里？**
+
+Pensea 将密钥保存在当前仓库的插件设置中。每次 AI 请求都会向配置的 API 地址发送密钥。OpenAI 兼容服务通过 `Authorization` 请求头认证，Claude 聊天通过 `x-api-key` 请求头认证，Gemini 通过 URL 的 `key` 参数认证。
+
+使用 OpenAI 兼容服务或 Claude 聊天时，可以单独指定向量服务的地址。若向量密钥留空，插件会将聊天密钥发到该地址。Gemini 向量请求使用聊天地址和密钥。Wiki 问答使用语义检索时，向量服务也会收到你的问题。
+
+| 功能 | 发送的内容 |
+|------|------------|
+| 排版、续写、选区改写 | 排版发送整篇笔记，续写发送光标前的文字及光标后的字数，润色等选区操作发送选中文字。 |
+| 处理 Inbox | 逐篇发送要归档的 Markdown 笔记全文。 |
+| Wiki 问答、健康检查 | 问答发送问题，并在有检索结果时附上索引摘录、相关页标题和摘录。健康检查发送 Wiki 页面的路径和摘录。 |
+| 智能命名 | 发送笔记正文开头最多 1,000 个字符。插件启动时已配置 AI 的情况下，编辑 `Untitled` 等默认名称的笔记也可能自动触发命名。 |
+| Wiki 向量索引 | 发送每个待索引页面的正文开头最多 800 个字符，正文为空时发送文件名。创建或编辑 Wiki 页面也可能自动触发索引更新。 |
 
 **Q：数据存在哪里？**
-A：所有数据都在你的 Vault 里——笔记是 Markdown 文件，复习记录在插件配置中。没有任何云端依赖。
+A：笔记以 Markdown 文件保存在仓库中，复习记录保存在插件数据中。API Key 留空时，看板、灵感和复习等功能都在本地运行。
 
 **Q：支持手机端吗？**
 A：支持。已做移动端适配（响应式布局 + 长按菜单）。将插件文件复制到手机端 Obsidian 的 `.obsidian/plugins/pensea/` 目录即可。
@@ -295,13 +312,15 @@ Running `Pensea: 初始化 Vault 结构` creates a built-in user guide at `3-Res
 
 ## Install
 
+### From Obsidian Community plugins
+
+Open **Settings → Community plugins**. If this is your first community plugin, follow the prompt to turn off Restricted mode. Select **Browse**, search for **Pensea**, then select **Install** and **Enable**. [Pensea community plugin page](https://community.obsidian.md/plugins/pensea)
+
 ### Manual
 
-1. Download `pensea.zip` from [Releases](../../releases)
-2. Extract to get `main.js`, `manifest.json`, `styles.css`, `versions.json`
-3. Create folder `.obsidian/plugins/pensea/` in your vault
-4. Copy all 4 files directly into that folder (no nested subfolder)
-5. Restart Obsidian → Settings → Community plugins → Enable **Pensea**
+1. Download `main.js`, `manifest.json`, and `styles.css` from **Assets** on the [latest release](https://github.com/y15865708228-pixel/yang/releases/latest).
+2. Create `.obsidian/plugins/pensea/` in your vault and put all three files directly in that folder.
+3. Restart Obsidian and enable **Pensea** under **Settings → Community plugins**.
 
 ### BRAT
 
@@ -309,13 +328,17 @@ Running `Pensea: 初始化 Vault 结构` creates a built-in user guide at `3-Res
 2. Add Beta Plugin → `https://github.com/y15865708228-pixel/yang`
 3. Enable Pensea
 
+### Optional Pensea theme
+
+The plugin works with your current theme. For the companion theme, search for **Pensea** under **Settings → Appearance → Themes → Manage**. [Community theme page](https://community.obsidian.md/themes/pensea)
+
 ---
 
 ## Quick Start
 
 1. **Initialize**: Command palette (`Ctrl/Cmd + P`) → `Pensea: 初始化 Vault 结构`
-2. **Open kanban**: Click ✨ icon in sidebar or run `Pensea: 打开 Sparks 看板`
-3. **Configure LLM (optional)**: Settings → Pensea → Select provider → Enter API Key → Test
+2. Run `Pensea: 打开 Sparks 看板` to open the board. Type your first idea in the Sparks field and press Enter. Select **开始使用 ✓** on the welcome card. This works offline.
+3. To use AI, choose your provider under **Settings → Pensea**, check the API address, and enter its key. Testing the connection sends the key and a fixed test message to that address.
 
 Supported providers: OpenAI · DeepSeek · Kimi · MiniMax · GLM · Ollama · Claude · Gemini · Custom
 
@@ -331,8 +354,19 @@ A: Yes. Kanban, calendar, spaced repetition, weekly reports, archival all work o
 **Q: Which AI provider do you recommend?**
 A: DeepSeek for best value. Ollama for free local use. OpenAI for best quality.
 
-**Q: Is my API key safe?**
-A: Keys are stored locally in your Obsidian plugin config. Never sent to third parties.
+**Where do my key and notes go when I use AI?**
+
+Pensea stores keys in the plugin settings in your vault. Each AI request sends a key to the configured API address. OpenAI-compatible services use the `Authorization` header, Claude chat uses the `x-api-key` header, and Gemini uses the `key` query parameter in the URL.
+
+With an OpenAI-compatible or Claude chat provider, you can set a separate embedding endpoint. Leaving its key blank sends your chat key to that endpoint. Gemini uses the chat endpoint and key for embeddings. When Wiki Q&A uses semantic search, the embedding service also receives your question.
+
+| Feature | Content sent |
+|---------|--------------|
+| Writing tools | Formatting sends the whole note. Continue writing sends the text before the cursor and the number of characters after it. Selection tools such as polish send the selected text. |
+| Process Inbox | The full text of each Markdown note being processed. |
+| Wiki Q&A and health check | Q&A sends your question and, when pages are found, an index excerpt and relevant page titles and excerpts. The health check sends Wiki page paths and excerpts. |
+| Smart naming | Up to the first 1,000 characters of the note body. If AI is configured when the plugin loads, editing a note with a generic name such as `Untitled` can trigger this automatically. |
+| Wiki embedding index | Up to the first 800 characters of each indexed page body, or the filename if the excerpt is empty. Creating or editing a Wiki page can trigger an index update automatically. |
 
 **Q: Does it work on mobile?**
 A: Yes. Responsive layout with long-press support. Copy plugin files to your mobile vault's `.obsidian/plugins/pensea/` directory.
